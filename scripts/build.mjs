@@ -7,8 +7,8 @@ import { build } from "esbuild";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const environment = process.argv[2];
 const gateways = {
-  dev: "https://back-wayline-gateway-dev.wayline-cc4.workers.dev",
-  prod: "https://back-wayline-gateway-prod.wayline-cc4.workers.dev",
+  dev: "https://test.back.wayline.studio",
+  prod: "https://back.wayline.studio",
 };
 
 if (!(environment in gateways)) {
@@ -36,8 +36,5 @@ await build({
   },
 });
 await chmod(output, 0o755);
-
-if (environment === "prod") {
-  await copyFile(output, resolve(root, "dist", "index.js"));
-  await chmod(resolve(root, "dist", "index.js"), 0o755);
-}
+await copyFile(output, resolve(root, "dist", "index.js"));
+await chmod(resolve(root, "dist", "index.js"), 0o755);
