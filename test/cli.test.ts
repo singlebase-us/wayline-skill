@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, stat } from "node:fs/promises";
+import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -35,7 +35,7 @@ test("all advertised tools have registered commands", () => {
   }
 });
 
-test("delivery request context maps to the organization-scoped Agent API", async () => {
+test("delivery request context maps to the organization-bounded User API", async () => {
   let captured: ToolRequest | undefined;
   const runtime = fakeRuntime(async (request) => { captured = request; return { data: { id: REQUEST }, requestId: "server-id" }; });
   const output = await captureStdout(() => createProgram(runtime).parseAsync([
@@ -43,14 +43,15 @@ test("delivery request context maps to the organization-scoped Agent API", async
     "--organization-id", ORGANIZATION, "--delivery-request-id", REQUEST,
   ]));
   assert.equal(captured?.method, "GET");
-  assert.equal(captured?.path, `/hub/api/v1/agent/organizations/${ORGANIZATION}/delivery-requests/${REQUEST}/context`);
+  assert.equal(captured?.path, `/hub/api/v1/delivery-requests/${REQUEST}/context`);
+  assert.equal(captured?.query?.get("organization_id"), ORGANIZATION);
   assert.deepEqual(JSON.parse(output), {
     schema: "wayline-cli-result/v1", ok: true, data: { id: REQUEST },
     meta: { request_id: "server-id", warnings: [] },
   });
 });
 
-test("delivery request content updates map title, description, and optimistic lock to the Agent API", async () => {
+test("delivery request content updates use the User API with an organization boundary", async () => {
   let captured: ToolRequest | undefined;
   const runtime = fakeRuntime(async (request) => {
     captured = request;
@@ -79,12 +80,43 @@ test("delivery request content updates map title, description, and optimistic lo
   assert.equal(captured?.method, "PATCH");
   assert.equal(
     captured?.path,
-    `/hub/api/v1/agent/organizations/${ORGANIZATION}/delivery-requests/${REQUEST}`,
+    `/hub/api/v1/delivery-requests/${REQUEST}/content`,
   );
+  assert.equal(captured?.query?.get("organization_id"), ORGANIZATION);
   assert.deepEqual(captured?.body, {
     expected_lock_version: 7,
     title: "Renamed request",
     description: "Updated requirement",
+  });
+});
+
+test("offline version submission uses expected-current CAS without an idempotency header", async () => {
+  const root = await mkdtemp(join(tmpdir(), "wayline-submit-test-"));
+  const input = join(root, "version.json");
+  await writeFile(input, JSON.stringify({
+    schema_version: "task-graph-version/v1", graph: { nodes: [], edges: [] },
+  }));
+  let captured: ToolRequest | undefined;
+  const runtime = fakeRuntime(async (request) => {
+    captured = request;
+    return { data: { id: REQUEST }, requestId: "server-id" };
+  });
+  await captureStdout(() => createProgram(runtime).parseAsync([
+    "node", "wayline-cli", "version", "submit",
+    "--organization-id", ORGANIZATION,
+    "--delivery-request-id", REQUEST,
+    "--expected-current-version-id", REQUEST,
+    "--input", input,
+  ]));
+  assert.equal(captured?.path, `/hub/api/v1/delivery-requests/${REQUEST}/version-submissions`);
+  assert.equal(captured?.query?.get("organization_id"), ORGANIZATION);
+  assert.equal(captured?.headers?.["Idempotency-Key"], undefined);
+  assert.deepEqual(captured?.body, {
+    expected_current_version_id: REQUEST,
+    source: {
+      type: "payload",
+      payload: { schema_version: "task-graph-version/v1", graph: { nodes: [], edges: [] } },
+    },
   });
 });
 
