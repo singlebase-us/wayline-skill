@@ -43,6 +43,8 @@ export class UserAuth {
     readonly apiURL: string,
     readonly store = new CredentialStore(),
     private readonly now: () => Date = () => new Date(),
+    private readonly browserOpener: (url: string) => Promise<void> = openBrowser,
+    private readonly wait: (milliseconds: number) => Promise<void> = delay,
   ) {}
 
   async createDeviceAuthorization(deviceName: string): Promise<DeviceAuthorization> {
@@ -75,19 +77,22 @@ export class UserAuth {
       if (!(error instanceof CredentialsNotFoundError)) throw error;
     }
     const authorization = await this.createDeviceAuthorization(deviceName);
-    write(`Open ${authorization.verification_uri} and enter code: ${authorization.user_code}`);
-    if (!noBrowser) {
+    if (noBrowser) {
+      writeBrowserFallback(authorization, write);
+    } else {
+      write("Opening your browser to confirm this Wayline CLI login...");
       try {
-        await openBrowser(authorization.verification_uri_complete);
+        await this.browserOpener(authorization.verification_uri_complete);
       } catch (error) {
         process.stderr.write(`warning: ${error instanceof Error ? error.message : String(error)}\n`);
+        writeBrowserFallback(authorization, write);
       }
     }
     let interval = authorization.interval * 1_000;
     const deadline = this.now().getTime() + authorization.expires_in * 1_000;
     let token: UserToken | undefined;
     while (this.now().getTime() < deadline) {
-      await delay(interval);
+      await this.wait(interval);
       try {
         token = await this.exchangeDeviceCode(authorization.device_code);
         break;
@@ -231,6 +236,17 @@ export class UserAuth {
     }
     return token;
   }
+}
+
+function writeBrowserFallback(
+  authorization: DeviceAuthorization,
+  write: (value: string) => void,
+): void {
+  write("Open this URL in a browser to confirm the Wayline CLI login:");
+  write(authorization.verification_uri_complete);
+  write(
+    `If the complete link cannot be used, open ${authorization.verification_uri} and enter code: ${authorization.user_code}`,
+  );
 }
 
 export function defaultDeviceName(): string {

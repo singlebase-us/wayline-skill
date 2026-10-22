@@ -103,6 +103,47 @@ test("credential refresh lock serializes concurrent processes", async () => {
   assert.deepEqual(order, ["first-enter", "first-exit", "second-enter"]);
 });
 
+test("device login opens the complete confirmation URL without asking for a code", async () => {
+  const root = await mkdtemp(join(tmpdir(), "wayline-device-login-test-"));
+  const writes: string[] = [];
+  const opened: string[] = [];
+  const client = deviceLoginClient();
+  const auth = new UserAuth(
+    client,
+    "https://api.example",
+    new CredentialStore(root),
+    () => new Date("2026-10-23T00:00:00.000Z"),
+    async (url) => { opened.push(url); },
+    async () => undefined,
+  );
+
+  await auth.login("Workstation", false, (value) => writes.push(value));
+
+  assert.deepEqual(opened, ["https://app.example.com/cli/activate?user_code=ABCD-EFGH"]);
+  assert.deepEqual(writes, ["Opening your browser to confirm this Wayline CLI login..."]);
+  assert.doesNotMatch(writes.join("\n"), /enter code/i);
+});
+
+test("no-browser device login prints the complete URL and keeps the user code as fallback", async () => {
+  const root = await mkdtemp(join(tmpdir(), "wayline-device-no-browser-test-"));
+  const writes: string[] = [];
+  let opened = false;
+  const auth = new UserAuth(
+    deviceLoginClient(),
+    "https://api.example",
+    new CredentialStore(root),
+    () => new Date("2026-10-23T00:00:00.000Z"),
+    async () => { opened = true; },
+    async () => undefined,
+  );
+
+  await auth.login("Workstation", true, (value) => writes.push(value));
+
+  assert.equal(opened, false);
+  assert.equal(writes[1], "https://app.example.com/cli/activate?user_code=ABCD-EFGH");
+  assert.match(writes[2] ?? "", /enter code: ABCD-EFGH/);
+});
+
 test("task graph input enforces the version protocol", async () => {
   const root = await mkdtemp(join(tmpdir(), "wayline-graph-test-"));
   const path = join(root, "graph.json");
@@ -122,6 +163,30 @@ function fakeRuntime(callTool: (request: ToolRequest) => Promise<{ data: unknown
     client: { callTool } as unknown as HttpClient,
     auth: { accessForOperation: async () => ({ credential: { refresh_token: "r", access_token: "a" }, refresh: Promise.resolve() }) } as unknown as UserAuth,
   };
+}
+
+function deviceLoginClient(): HttpClient {
+  return {
+    request: async (_method: string, path: string) => {
+      if (path.endsWith("/device-authorizations")) {
+        return {
+          device_code: "device-secret",
+          user_code: "ABCD-EFGH",
+          verification_uri: "https://app.example.com/cli/activate",
+          verification_uri_complete: "https://app.example.com/cli/activate?user_code=ABCD-EFGH",
+          expires_in: 600,
+          interval: 5,
+        };
+      }
+      return {
+        access_token: "access",
+        refresh_token: "refresh",
+        token_type: "Bearer",
+        expires_in: 900,
+        refresh_expires_in: 2_592_000,
+      };
+    },
+  } as unknown as HttpClient;
 }
 
 async function captureStdout(operation: () => Promise<unknown>): Promise<string> {
