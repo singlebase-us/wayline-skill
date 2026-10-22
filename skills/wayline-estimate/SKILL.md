@@ -1,7 +1,7 @@
 ---
 name: wayline-estimate
 description: >-
-  Analyze a Wayline delivery request against a local codebase, estimate effort, decompose the work, and generate or submit a Task Graph version through wayline-cli. Use for impact analysis, implementation planning, task breakdown, estimates, or graph-version creation. Approval decisions belong to wayline-review.
+  Analyze a Wayline delivery request against a local codebase, produce evidence-backed delivery-effort estimates, decompose the work, and generate or submit a Task Graph version through wayline-cli. Use for impact analysis, implementation planning, task breakdown, effort estimates, or graph-version creation. Approval decisions belong to wayline-review.
 metadata:
   cliHelp: "wayline-cli delivery-request context --help && wayline-cli version --help && wayline-cli developer-profile --help"
 ---
@@ -14,10 +14,12 @@ Always require the intended `--organization-id` and `--delivery-request-id`. Sta
 
 ## Analysis
 
-- Inspect the local codebase whenever it is available. Trace the affected implementation, tests, configuration, migrations, and integration boundaries before assigning estimates.
-- If no codebase is available, say that the estimate is requirement-only and make uncertainty visible instead of inventing implementation detail.
+- Before estimating, read [references/estimation-method.md](references/estimation-method.md) and follow its evidence, decomposition, estimation, and reporting contract.
+- Inspect the local codebase whenever it is available. Build the minimum sufficient model of the affected behavior; do not turn estimation into implementation or an exhaustive repository audit.
+- Estimate developer delivery effort, not Agent runtime, token use, calendar duration, or elapsed waiting time. A task estimate covers the work needed to reach its stated definition of done.
+- If no codebase is available, label the result requirement-only, widen the range, lower confidence, and avoid invented implementation detail.
 - Keep private reasoning local. The Hub stores submitted workflow data, not the Agent's analysis transcript.
-- Present the user with the proposed scope, assumptions, risks, relevant files, task breakdown, and estimate basis. Use `estimate_source: "ai"` for Agent estimates; use null for both estimate fields when an estimate cannot be supported.
+- Present the user with scope, assumptions, evidence, risks, task-level ranges, confidence, total effort, and the point values proposed for the graph. Use `estimate_source: "ai"` for Agent estimates; use null for both estimate fields when no defensible point estimate can be supported.
 
 ## Task Graph versions
 
