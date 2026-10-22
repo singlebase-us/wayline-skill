@@ -50,6 +50,44 @@ test("delivery request context maps to the organization-scoped Agent API", async
   });
 });
 
+test("delivery request content updates map title, description, and optimistic lock to the Agent API", async () => {
+  let captured: ToolRequest | undefined;
+  const runtime = fakeRuntime(async (request) => {
+    captured = request;
+    return { data: { id: REQUEST, lock_version: 8 }, requestId: "server-id" };
+  });
+
+  await captureStdout(() =>
+    createProgram(runtime).parseAsync([
+      "node",
+      "wayline-cli",
+      "delivery-request",
+      "update-content",
+      "--organization-id",
+      ORGANIZATION,
+      "--delivery-request-id",
+      REQUEST,
+      "--expected-lock-version",
+      "7",
+      "--title",
+      "Renamed request",
+      "--description",
+      "Updated requirement",
+    ]),
+  );
+
+  assert.equal(captured?.method, "PATCH");
+  assert.equal(
+    captured?.path,
+    `/hub/api/v1/agent/organizations/${ORGANIZATION}/delivery-requests/${REQUEST}`,
+  );
+  assert.deepEqual(captured?.body, {
+    expected_lock_version: 7,
+    title: "Renamed request",
+    description: "Updated requirement",
+  });
+});
+
 test("credentials are isolated in private ~/.wayline-style files", async () => {
   const root = await mkdtemp(join(tmpdir(), "wayline-user-test-"));
   const store = new CredentialStore(root);
