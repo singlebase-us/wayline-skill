@@ -4,7 +4,12 @@ import { readdir, readFile } from "node:fs/promises";
 import test from "node:test";
 
 const skillsRoot = new URL("../skills/", import.meta.url);
-const expectedSkills = ["wayline-estimate", "wayline-review", "wayline-workspace"];
+const expectedSkills = [
+  "wayline-estimate",
+  "wayline-execution",
+  "wayline-review",
+  "wayline-workspace",
+];
 
 test("the User package exposes the intent-scoped skill set", async () => {
   const entries = await readdir(skillsRoot, { withFileTypes: true });
@@ -14,6 +19,12 @@ test("the User package exposes the intent-scoped skill set", async () => {
     const contents = await readFile(new URL(`${name}/SKILL.md`, skillsRoot), "utf8");
     assert.match(contents, new RegExp(`^---\\nname: ${name}\\n`));
   }
+});
+test("execution remains read-only and reconciles state with the published graph", async () => {
+  const contents = await readFile(new URL("wayline-execution/SKILL.md", skillsRoot), "utf8");
+  assert.match(contents, /currently published graph by `node_ref`/);
+  assert.match(contents, /This skill is read-only/);
+  assert.doesNotMatch(contents, /task-execution update|node-comment create/);
 });
 test("estimate and review ship the same byte-identical authoritative Graph protocol", async () => {
   for (const file of ["graph-document.v3.schema.json", "task-graph-version.v1.schema.json", "protocol-manifest.json", "task-graph-protocol.md"]) {

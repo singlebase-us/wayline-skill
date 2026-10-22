@@ -16,7 +16,7 @@ Always use the explicitly selected `--organization-id` and `--delivery-request-i
 
 - Read the approval change and the exact candidate version it currently names. Compare it with the published baseline rather than assuming the newest version is the candidate.
 - Assess requirement coverage, graph validity, dependency direction, task granularity, estimate support, and material implementation risk. Use local code when it is available and relevant.
-- `task-execution get` and `node-comment list` may provide supporting execution evidence, but User CLI access to both is read-only.
+- `task-execution get` and `node-comment list` may provide supporting execution evidence, but User CLI access to both is read-only. Route progress, blocker, assignment, or execution-history requests whose primary intent is not approval review to `wayline-execution`.
 - Separate analysis from action: report the review result before mutating approval state.
 
 Only run `change submit|approve|request-changes|replace-candidate|withdraw` when the user explicitly requests that action. Immediately before a command, fetch the latest change and use its current lock version. Approval must name the exact current candidate version. On a lock or candidate mismatch, stop and show the updated state instead of retrying against a different candidate.
