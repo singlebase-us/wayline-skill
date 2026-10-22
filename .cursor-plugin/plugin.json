@@ -1,0 +1,7 @@
+{
+  "name": "wayline",
+  "version": "0.1.0",
+  "description": "Wayline Hub User CLI and intent-scoped Agent skills",
+  "license": "UNLICENSED",
+  "skills": ["./skills/"]
+}

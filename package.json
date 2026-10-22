@@ -1,0 +1,38 @@
+{
+  "name": "skill-wayline",
+  "version": "0.1.0",
+  "description": "Wayline Agent CLI and skills for Hub Users",
+  "type": "module",
+  "bin": {
+    "wayline-cli": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "files": [
+    "dist/index.js",
+    "skills",
+    ".claude-plugin",
+    ".cursor-plugin"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs prod",
+    "build:dev": "node scripts/build.mjs dev",
+    "build:prod": "node scripts/build.mjs prod",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx 'test/**/*.test.ts'",
+    "check": "npm run typecheck && npm test && npm run build:dev && npm run build:prod",
+    "prepublishOnly": "npm run check"
+  },
+  "dependencies": {
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "UNLICENSED"
+}

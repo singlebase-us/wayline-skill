@@ -1,0 +1,133 @@
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import { UserAuth } from "../src/auth.js";
+import { createProgram, USER_TOOLS } from "../src/commands.js";
+import { CredentialStore } from "../src/credentials.js";
+import { HttpClient, ToolRequest } from "../src/http.js";
+import { readTaskGraphVersion } from "../src/validation.js";
+
+const ORGANIZATION = "10000000-0000-4000-8000-000000000001";
+const REQUEST = "20000000-0000-4000-8000-000000000001";
+
+test("help is hierarchical and does not expose Admin commands", () => {
+  const output: string[] = [];
+  const program = createProgram(fakeRuntime());
+  program.configureOutput({ writeOut: (value) => output.push(value), writeErr: (value) => output.push(value) });
+  program.exitOverride();
+  assert.throws(() => program.parse(["node", "wayline-cli", "--help"]));
+  const help = output.join("");
+  assert.match(help, /Commands:/);
+  assert.match(help, /delivery-request/);
+  assert.doesNotMatch(help, /Admin User|set-status|task-execution update/);
+});
+
+test("all advertised tools have registered commands", () => {
+  const program = createProgram(fakeRuntime());
+  for (const tool of USER_TOOLS) {
+    if (tool === "capabilities") continue;
+    const [group, action] = tool.split(" ");
+    const groupCommand = program.commands.find((command) => command.name() === group);
+    assert.ok(groupCommand, group);
+    assert.ok(groupCommand.commands.some((command) => command.name() === action), tool);
+  }
+});
+
+test("delivery request context maps to the organization-scoped Agent API", async () => {
+  let captured: ToolRequest | undefined;
+  const runtime = fakeRuntime(async (request) => { captured = request; return { data: { id: REQUEST }, requestId: "server-id" }; });
+  const output = await captureStdout(() => createProgram(runtime).parseAsync([
+    "node", "wayline-cli", "delivery-request", "context",
+    "--organization-id", ORGANIZATION, "--delivery-request-id", REQUEST,
+  ]));
+  assert.equal(captured?.method, "GET");
+  assert.equal(captured?.path, `/hub/api/v1/agent/organizations/${ORGANIZATION}/delivery-requests/${REQUEST}/context`);
+  assert.deepEqual(JSON.parse(output), {
+    schema: "wayline-cli-result/v1", ok: true, data: { id: REQUEST },
+    meta: { request_id: "server-id", warnings: [] },
+  });
+});
+
+test("credentials are isolated in private ~/.wayline-style files", async () => {
+  const root = await mkdtemp(join(tmpdir(), "wayline-user-test-"));
+  const store = new CredentialStore(root);
+  await store.set("https://api.example", { refresh_token: "refresh", access_token: "access" });
+  const directory = await stat(join(root, "credentials"));
+  assert.equal(directory.mode & 0o777, 0o700);
+  const names = (await import("node:fs/promises")).readdir(join(root, "credentials"));
+  const [name] = await names;
+  assert.match(name, /^user-[0-9a-f]{16}\.json$/);
+  const file = await stat(join(root, "credentials", name));
+  assert.equal(file.mode & 0o777, 0o600);
+  assert.doesNotMatch(await readFile(join(root, "credentials", name), "utf8"), /api\.example/);
+});
+
+test("user access refreshes after one third and persists rotated refresh token", async () => {
+  const root = await mkdtemp(join(tmpdir(), "wayline-refresh-test-"));
+  const store = new CredentialStore(root);
+  const now = new Date("2026-10-22T00:06:00.000Z");
+  await store.set("https://api.example", {
+    refresh_token: "old-refresh", access_token: "old-access",
+    access_obtained_at: "2026-10-22T00:00:00.000Z", access_expires_at: "2026-10-22T00:15:00.000Z",
+    refresh_expires_at: "2026-11-22T00:00:00.000Z",
+  });
+  const client = {
+    request: async () => ({ access_token: "new-access", refresh_token: "new-refresh", token_type: "Bearer", expires_in: 900, refresh_expires_in: 2_592_000 }),
+  } as unknown as HttpClient;
+  const auth = new UserAuth(client, "https://api.example", store, () => now);
+  const access = await auth.accessForOperation(true);
+  assert.equal(access.credential.access_token, "old-access");
+  await access.refresh;
+  assert.equal((await store.get("https://api.example")).refresh_token, "new-refresh");
+});
+
+test("credential refresh lock serializes concurrent processes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "wayline-lock-test-"));
+  const store = new CredentialStore(root);
+  let release!: () => void;
+  const blocked = new Promise<void>((resolve) => { release = resolve; });
+  const order: string[] = [];
+  const first = store.withLock("https://api.example", async () => {
+    order.push("first-enter");
+    await blocked;
+    order.push("first-exit");
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const second = store.withLock("https://api.example", async () => { order.push("second-enter"); });
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.deepEqual(order, ["first-enter"]);
+  release();
+  await Promise.all([first, second]);
+  assert.deepEqual(order, ["first-enter", "first-exit", "second-enter"]);
+});
+
+test("task graph input enforces the version protocol", async () => {
+  const root = await mkdtemp(join(tmpdir(), "wayline-graph-test-"));
+  const path = join(root, "graph.json");
+  await (await import("node:fs/promises")).writeFile(path, JSON.stringify({
+    schema_version: "task-graph-version/v1",
+    graph: {
+      nodes: [{ ref: "n_TASK001", type: "task", attributes: { title: "T", description: "D", estimated_minutes: 60, estimate_source: "ai" } }],
+      edges: [],
+    },
+  }));
+  const value = await readTaskGraphVersion(path);
+  assert.equal(value.schema_version, "task-graph-version/v1");
+});
+
+function fakeRuntime(callTool: (request: ToolRequest) => Promise<{ data: unknown; requestId: string }> = async () => ({ data: {}, requestId: "id" })) {
+  return {
+    client: { callTool } as unknown as HttpClient,
+    auth: { accessForOperation: async () => ({ credential: { refresh_token: "r", access_token: "a" }, refresh: Promise.resolve() }) } as unknown as UserAuth,
+  };
+}
+
+async function captureStdout(operation: () => Promise<unknown>): Promise<string> {
+  const original = process.stdout.write.bind(process.stdout);
+  let value = "";
+  process.stdout.write = ((chunk: string | Uint8Array) => { value += chunk.toString(); return true; }) as typeof process.stdout.write;
+  try { await operation(); } finally { process.stdout.write = original; }
+  return value.trim();
+}

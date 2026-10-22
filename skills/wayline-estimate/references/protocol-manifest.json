@@ -1,0 +1,11 @@
+{
+  "schema_version": "wayline-task-graph-protocol-manifest/v1",
+  "files": {
+    "graph-document.v3.schema.json": {
+      "sha256": "92b974e11fd545b3ae4b69eeb60ac86c9b930572aba02e5422ad78c685defae5"
+    },
+    "task-graph-version.v1.schema.json": {
+      "sha256": "a58ccf9ca7b80912df29f25781806056c4fb30fb26b7fb18ee3613fe872d31d1"
+    }
+  }
+}
