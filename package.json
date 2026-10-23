@@ -16,7 +16,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --import tsx 'test/**/*.test.ts'",
+    "test": "node scripts/test.mjs",
     "check": "npm run typecheck && npm test && npm run build",
     "prepublishOnly": "npm run check"
   },
