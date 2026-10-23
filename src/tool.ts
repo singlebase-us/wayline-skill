@@ -37,10 +37,6 @@ export class ToolInvocation {
     return new ToolError({ code, message, retryable, ...(details ? { details } : {}) }, this.id);
   }
 
-  invalid(error: unknown): ToolError {
-    return this.failure("invalid_arguments", message(error));
-  }
-
   wrap(error: unknown): ToolError {
     if (error instanceof ToolError) return error;
     if (error instanceof CredentialsNotFoundError) {

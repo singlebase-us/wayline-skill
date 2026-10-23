@@ -1,16 +1,56 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { UserAuth } from "../src/auth.js";
 import { createProgram, USER_TOOLS } from "../src/commands.js";
 import { CredentialStore } from "../src/credentials.js";
+import { ApiError, ToolError } from "../src/errors.js";
 import { HttpClient, ToolRequest } from "../src/http.js";
 import { readTaskGraphVersion } from "../src/validation.js";
 
 const ORGANIZATION = "10000000-0000-4000-8000-000000000001";
 const REQUEST = "20000000-0000-4000-8000-000000000001";
+
+test("local argument validation errors stay human-readable", () => {
+  const result = spawnSync(process.execPath, [
+    "--import",
+    "tsx",
+    fileURLToPath(new URL("../src/index.ts", import.meta.url)),
+    "organization",
+    "get",
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, "error: --organization-id is required\n");
+});
+
+test("API failures remain structured tool errors", async () => {
+  const runtime = fakeRuntime(async () => {
+    throw new ApiError(503, "temporarily_unavailable", "try again later", "/organizations", undefined, "server-id");
+  });
+
+  await assert.rejects(
+    () => createProgram(runtime).parseAsync([
+      "node", "wayline-cli", "organization", "get", "--organization-id", ORGANIZATION,
+    ]),
+    (error) => {
+      assert.ok(error instanceof ToolError);
+      assert.equal(error.requestId, "server-id");
+      assert.deepEqual(error.body, {
+        code: "temporarily_unavailable",
+        message: "try again later",
+        retryable: true,
+        details: { path: "/organizations" },
+      });
+      return true;
+    },
+  );
+});
 
 test("help is hierarchical and does not expose Admin commands", () => {
   const output: string[] = [];

@@ -2,7 +2,6 @@ import { Command } from "commander";
 import { buildInfo } from "./build.js";
 import { UserAuth, defaultDeviceName } from "./auth.js";
 import { HttpClient, ToolRequest } from "./http.js";
-import { ToolError } from "./errors.js";
 import { TASK_GRAPH_VERSION_SCHEMA, ToolInvocation } from "./tool.js";
 import {
   deliveryRequestStatuses,
@@ -328,12 +327,7 @@ function toolAction(
 ): (options: Options) => Promise<void> {
   return async (options) => {
     const invocation = new ToolInvocation(runtime.client, runtime.auth);
-    try {
-      await action(options, invocation);
-    } catch (error) {
-      if (error instanceof ToolError) throw error;
-      throw invocation.invalid(error);
-    }
+    await action(options, invocation);
   };
 }
 

@@ -1,6 +1,6 @@
 import { CommanderError } from "commander";
 import { buildInfo } from "./build.js";
-import { createProgram, USER_TOOLS } from "./commands.js";
+import { createProgram } from "./commands.js";
 import { CredentialStore } from "./credentials.js";
 import { ToolError } from "./errors.js";
 import { HttpClient } from "./http.js";
@@ -25,21 +25,9 @@ export async function main(argv = process.argv): Promise<number> {
       writeToolError(error);
       return 1;
     }
-    if (isBusinessCommand(argv[2])) {
-      writeToolError(new ToolError({
-        code: "invalid_arguments",
-        message: error instanceof Error ? error.message : String(error),
-        retryable: false,
-      }, crypto.randomUUID()));
-      return 1;
-    }
     process.stderr.write(`error: ${error instanceof Error ? error.message : String(error)}\n`);
     return 1;
   }
-}
-
-function isBusinessCommand(command: string | undefined): boolean {
-  return command === "capabilities" || USER_TOOLS.some((tool) => tool.split(" ")[0] === command);
 }
 
 process.exitCode = await main();
