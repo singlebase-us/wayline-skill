@@ -14,12 +14,10 @@
     ".cursor-plugin"
   ],
   "scripts": {
-    "build": "node scripts/build.mjs prod",
-    "build:dev": "node scripts/build.mjs dev",
-    "build:prod": "node scripts/build.mjs prod",
+    "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --test --import tsx 'test/**/*.test.ts'",
-    "check": "npm run typecheck && npm test && npm run build:dev && npm run build:prod",
+    "check": "npm run typecheck && npm test && npm run build",
     "prepublishOnly": "npm run check"
   },
   "dependencies": {

@@ -14,21 +14,18 @@ Hub User 向的 Wayline Agent 工具包。项目同时发布：
 
 ```bash
 npm install
-make build dev
-make build prod
+make build
 npm run check
 ```
-
-`make build dev` 与 `make build prod` 会把不同的 Cloudflare Gateway 固化进产物，不接受运行时 API URL。
 
 ## 使用
 
 ```bash
-./dist/dev/index.js --help
-./dist/dev/index.js auth login
-./dist/dev/index.js capabilities
+./dist/index.js --help
+./dist/index.js auth login
+./dist/index.js capabilities
 ```
 
-鉴权凭证保存在 `~/.wayline/credentials/`，目录权限为 `0700`，凭证文件权限为 `0600`。业务工具调用输出 `wayline-cli-result/v1` JSON；帮助、登录状态和登录引导保持人类可读。
+鉴权凭证保存在 `~/.wayline/credentials/`，目录权限为 `0700`，凭证文件权限为 `0600`。API 调用结果输出 `wayline-cli-result/v1` JSON；本地参数或输入校验错误、帮助、登录状态和登录引导保持人类可读。
 
 TypeScript 版本与旧 Go CLI 使用相同的凭证格式；迁移期间不要并发运行两个实现，以免旋转同一个 Refresh Token。

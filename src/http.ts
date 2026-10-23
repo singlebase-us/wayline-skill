@@ -34,7 +34,11 @@ export class HttpClient {
   readonly baseURL: URL;
 
   constructor(baseURL: string, readonly userAgent: string, private readonly fetcher: typeof fetch = fetch) {
-    this.baseURL = new URL(baseURL);
+    try {
+      this.baseURL = new URL(baseURL);
+    } catch {
+      throw new Error(`invalid API URL ${JSON.stringify(baseURL)}`);
+    }
     if (!/^https?:$/.test(this.baseURL.protocol) || !this.baseURL.host) {
       throw new Error(`invalid API URL ${JSON.stringify(baseURL)}`);
     }

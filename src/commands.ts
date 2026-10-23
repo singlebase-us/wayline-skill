@@ -49,12 +49,12 @@ export function createProgram(runtime: Runtime): Command {
 
   registerAuth(program, runtime.auth);
   program.command("capabilities")
-    .description("Show the CLI version, build environment, schemas, and supported Agent tools")
+    .description("Show the CLI version, API base URL, schemas, and supported Agent tools")
     .action(toolAction(runtime, async (_options, invocation) => {
       invocation.localSuccess({
         binary: "wayline-cli",
         version: buildInfo.version,
-        build_environment: buildInfo.environment,
+        api_base_url: buildInfo.apiURL,
         result_schema: "wayline-cli-result/v1",
         task_graph_schema: TASK_GRAPH_VERSION_SCHEMA,
         tools: USER_TOOLS,

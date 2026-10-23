@@ -8,11 +8,11 @@ import { UserAuth, userAgent } from "./auth.js";
 import { writeToolError } from "./tool.js";
 
 export async function main(argv = process.argv): Promise<number> {
-  const client = new HttpClient(buildInfo.apiURL, userAgent(buildInfo.version));
-  const auth = new UserAuth(client, buildInfo.apiURL, new CredentialStore());
-  const program = createProgram({ client, auth });
-  program.exitOverride();
   try {
+    const client = new HttpClient(buildInfo.apiURL, userAgent(buildInfo.version));
+    const auth = new UserAuth(client, buildInfo.apiURL, new CredentialStore());
+    const program = createProgram({ client, auth });
+    program.exitOverride();
     if (argv.length <= 2) {
       program.outputHelp();
       return 0;
