@@ -27,6 +27,10 @@ Before reading, generating, transforming, or submitting a graph, read [reference
 
 Preserve stable refs for surviving nodes and edges. A version contains design only: never add execution status, assignees, priority, schedule, comments, metadata, or Delivery Request presentation text.
 
+`version list` returns metadata rows only; graph payloads are never included there. Read a specific version's graph with `version get --version-id`.
+
 `wayline-cli` does not acquire an edit lease. Submit only after the user has asked to persist the proposed version, using the exact observed `--expected-current-version-id`. If that comparison is stale, fetch the new current version and reconcile the plan; never relabel a candidate derived from v1 as though it were derived from v2. If reconciliation materially changes the plan, show the revised result before resubmitting.
 
 Prefer `--input -` when the generated JSON is already available in memory; otherwise use a project-local file. Do not start, approve, reject, replace, or withdraw an approval change in this skill.
+
+After every saved or submitted graph version, remind the user that the snapshot can be reviewed in Hub, and include the direct link `https://hub.wayline.studio/requests/<request-id>?snapshot=true` with the real `--delivery-request-id` substituted. Keep the published plan view available at the same path without the `snapshot` parameter.

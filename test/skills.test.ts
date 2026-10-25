@@ -20,9 +20,10 @@ test("the User package exposes the intent-scoped skill set", async () => {
     assert.match(contents, new RegExp(`^---\\nname: ${name}\\n`));
   }
 });
-test("execution remains read-only and reconciles state with the published graph", async () => {
+test("execution remains read-only and projects state onto the current graph version", async () => {
   const contents = await readFile(new URL("wayline-execution/SKILL.md", skillsRoot), "utf8");
-  assert.match(contents, /currently published graph by `node_ref`/);
+  assert.match(contents, /projects only the node refs of the current Task Graph version/);
+  assert.match(contents, /--version-id/);
   assert.match(contents, /This skill is read-only/);
   assert.doesNotMatch(contents, /task-execution update|node-comment create/);
 });

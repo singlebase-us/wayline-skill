@@ -131,10 +131,10 @@ wayline-cli change approve --help
 | `organization` | List and read organizations available to you. |
 | `task-group` | List, create, rename, and delete task groups. |
 | `delivery-request` | List, read, create, edit, and move Delivery Requests. |
-| `version` | List, inspect, compare, and submit immutable Task Graph versions. |
+| `version` | List metadata-only version rows, inspect and compare versions, and submit graphs. |
 | `change` | Submit and operate Task Graph approval changes. |
 | `task-graph` | Read the currently published Task Graph. |
-| `task-execution` | Read task execution state. |
+| `task-execution` | Read task execution state, projected onto the current version unless `--version-id` names another. |
 | `developer-profile` | Resolve Developer Profiles used for task ownership. |
 | `node-comment` | Read comments attached to published task nodes. |
 
