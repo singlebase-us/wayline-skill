@@ -66,7 +66,7 @@ export function createProgram(runtime: Runtime): Command {
   registerVersion(program, runtime);
   registerChange(program, runtime);
   registerRequestRead(program, runtime, "task-graph", "Read the published task graph");
-  registerRequestRead(program, runtime, "task-execution", "Read task execution state");
+  registerTaskExecution(program, runtime);
   registerDeveloperProfile(program, runtime);
   registerNodeComment(program, runtime);
   return program;
@@ -295,6 +295,20 @@ function registerRequestRead(program: Command, runtime: Runtime, resource: strin
     .action(toolAction(runtime, async (options, invocation) => invocation.call({
       method: "GET", path: `${requestPath(options)}/${resource}`, query: organizationQuery(options),
     })));
+}
+
+function registerTaskExecution(program: Command, runtime: Runtime): void {
+  const group = program.command("task-execution").description("Read task execution state");
+  requestScope(group.command("get").description("Read task execution state"))
+    .option("--version-id <uuid>", "Project only the nodes of this graph version (default: current version)")
+    .action(toolAction(runtime, async (options, invocation) => {
+      const query = new URLSearchParams();
+      const versionID = optionalUUID("version-id", options.versionId);
+      if (versionID) query.set("version_id", versionID);
+      await invocation.call({
+        method: "GET", path: `${requestPath(options)}/task-execution`, query: organizationQuery(options, query),
+      });
+    }));
 }
 
 function registerDeveloperProfile(program: Command, runtime: Runtime): void {

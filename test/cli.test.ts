@@ -14,6 +14,7 @@ import { readTaskGraphVersion } from "../src/validation.js";
 
 const ORGANIZATION = "10000000-0000-4000-8000-000000000001";
 const REQUEST = "20000000-0000-4000-8000-000000000001";
+const VERSION = "40000000-0000-4000-8000-000000000001";
 
 test("local argument validation errors stay human-readable", () => {
   const result = spawnSync(process.execPath, [
@@ -89,6 +90,27 @@ test("delivery request context maps to the organization-bounded User API", async
     schema: "wayline-cli-result/v1", ok: true, data: { id: REQUEST },
     meta: { request_id: "server-id", warnings: [] },
   });
+});
+
+test("task execution reads project the current version unless a version is named", async () => {
+  const requests: ToolRequest[] = [];
+  const runtime = fakeRuntime(async (request) => {
+    requests.push(request);
+    return { data: { nodes: [] }, requestId: "server-id" };
+  });
+  await captureStdout(() => createProgram(runtime).parseAsync([
+    "node", "wayline-cli", "task-execution", "get",
+    "--organization-id", ORGANIZATION, "--delivery-request-id", REQUEST,
+  ]));
+  await captureStdout(() => createProgram(runtime).parseAsync([
+    "node", "wayline-cli", "task-execution", "get",
+    "--organization-id", ORGANIZATION, "--delivery-request-id", REQUEST,
+    "--version-id", VERSION,
+  ]));
+  assert.equal(requests[0].path, `/hub/api/v1/delivery-requests/${REQUEST}/task-execution`);
+  assert.equal(requests[0].query?.get("version_id"), null);
+  assert.equal(requests[0].query?.get("organization_id"), ORGANIZATION);
+  assert.equal(requests[1].query?.get("version_id"), VERSION);
 });
 
 test("delivery request content updates use the User API with an organization boundary", async () => {
