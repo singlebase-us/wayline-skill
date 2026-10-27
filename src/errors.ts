@@ -1,3 +1,5 @@
+import type { OrganizationScope } from "./tool.js";
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -37,6 +39,7 @@ export class ToolError extends Error {
       details?: Record<string, unknown>;
     },
     readonly requestId: string,
+    readonly organization?: OrganizationScope,
   ) {
     super(body.message);
     this.name = "ToolError";

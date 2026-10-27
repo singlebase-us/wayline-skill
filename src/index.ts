@@ -4,6 +4,7 @@ import { createProgram } from "./commands.js";
 import { CredentialStore } from "./credentials.js";
 import { ToolError } from "./errors.js";
 import { HttpClient } from "./http.js";
+import { OrganizationBindingStore } from "./organization-binding.js";
 import { UserAuth, userAgent } from "./auth.js";
 import { writeToolError } from "./tool.js";
 
@@ -11,7 +12,7 @@ export async function main(argv = process.argv): Promise<number> {
   try {
     const client = new HttpClient(buildInfo.apiURL, userAgent(buildInfo.version));
     const auth = new UserAuth(client, buildInfo.apiURL, new CredentialStore());
-    const program = createProgram({ client, auth });
+    const program = createProgram({ client, auth, bindings: new OrganizationBindingStore() });
     program.exitOverride();
     if (argv.length <= 2) {
       program.outputHelp();

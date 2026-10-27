@@ -6,9 +6,16 @@ import { UserAuth } from "./auth.js";
 export const RESULT_SCHEMA = "wayline-cli-result/v1";
 export const TASK_GRAPH_VERSION_SCHEMA = "task-graph-version/v1";
 
+export interface OrganizationScope {
+  organization_id: string;
+  organization_source: "flag" | "binding";
+}
+
 interface ToolMeta {
   request_id: string;
   warnings: string[];
+  organization_id?: string;
+  organization_source?: "flag" | "binding";
 }
 
 export function writeJSON(value: unknown, stream: NodeJS.WritableStream = process.stdout): void {
@@ -20,12 +27,13 @@ export function writeToolError(error: ToolError): void {
     schema: RESULT_SCHEMA,
     ok: false,
     error: error.body,
-    meta: { request_id: error.requestId, warnings: [] } satisfies ToolMeta,
+    meta: meta(error.requestId, [], error.organization),
   }, process.stderr);
 }
 
 export class ToolInvocation {
   readonly id = randomUUID();
+  organization?: OrganizationScope;
 
   constructor(readonly client: HttpClient, readonly auth: UserAuth) {}
 
@@ -34,7 +42,11 @@ export class ToolInvocation {
   }
 
   failure(code: string, message: string, retryable = false, details?: Record<string, unknown>): ToolError {
-    return new ToolError({ code, message, retryable, ...(details ? { details } : {}) }, this.id);
+    return new ToolError(
+      { code, message, retryable, ...(details ? { details } : {}) },
+      this.id,
+      this.organization,
+    );
   }
 
   wrap(error: unknown): ToolError {
@@ -51,7 +63,7 @@ export class ToolInvocation {
         retryable: error.status === 429 || error.status >= 500 ||
           error.status === 409 && (code.includes("conflict") || code.includes("stale")),
         ...(Object.keys(details).length ? { details } : {}),
-      }, error.requestId || this.id);
+      }, error.requestId || this.id, this.organization);
     }
     return this.failure("transport_error", message(error), true);
   }
@@ -78,9 +90,13 @@ export class ToolInvocation {
       schema: RESULT_SCHEMA,
       ok: true,
       data,
-      meta: { request_id: requestId, warnings } satisfies ToolMeta,
+      meta: meta(requestId, warnings, this.organization),
     });
   }
+}
+
+function meta(requestId: string, warnings: string[], organization?: OrganizationScope): ToolMeta {
+  return { request_id: requestId, warnings, ...organization };
 }
 
 function message(error: unknown): string {

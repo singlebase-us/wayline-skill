@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +10,7 @@ import { createProgram, USER_TOOLS } from "../src/commands.js";
 import { CredentialStore } from "../src/credentials.js";
 import { ApiError, ToolError } from "../src/errors.js";
 import { HttpClient, ToolRequest } from "../src/http.js";
+import { OrganizationBindingStore, projectScope } from "../src/organization-binding.js";
 import { readTaskGraphVersion } from "../src/validation.js";
 
 const ORGANIZATION = "10000000-0000-4000-8000-000000000001";
@@ -23,11 +24,13 @@ test("local argument validation errors stay human-readable", () => {
     fileURLToPath(new URL("../src/index.ts", import.meta.url)),
     "organization",
     "get",
+    "--organization-id",
+    "not-a-uuid",
   ], { encoding: "utf8" });
 
   assert.equal(result.status, 1);
   assert.equal(result.stdout, "");
-  assert.equal(result.stderr, "error: --organization-id is required\n");
+  assert.equal(result.stderr, "error: --organization-id must be a UUID\n");
 });
 
 test("API failures remain structured tool errors", async () => {
@@ -88,7 +91,9 @@ test("delivery request context maps to the organization-bounded User API", async
   assert.equal(captured?.query?.get("organization_id"), ORGANIZATION);
   assert.deepEqual(JSON.parse(output), {
     schema: "wayline-cli-result/v1", ok: true, data: { id: REQUEST },
-    meta: { request_id: "server-id", warnings: [] },
+    meta: {
+      request_id: "server-id", warnings: [], organization_id: ORGANIZATION, organization_source: "flag",
+    },
   });
 });
 
@@ -180,6 +185,82 @@ test("offline version submission uses expected-current CAS without an idempotenc
       payload: { schema_version: "task-graph-version/v1", graph: { nodes: [], edges: [] } },
     },
   });
+});
+
+test("organization bindings follow the project root and stay in private files", async () => {
+  const root = await mkdtemp(join(tmpdir(), "wayline-binding-store-test-"));
+  const repository = join(root, "repo");
+  const nested = join(repository, "src", "commands");
+  await mkdir(join(repository, ".git"), { recursive: true });
+  await mkdir(nested, { recursive: true });
+  assert.equal(projectScope(nested), repository);
+  assert.equal(projectScope(join(root, "loose")), join(root, "loose"));
+
+  const store = new OrganizationBindingStore(join(root, "home"));
+  await store.set("https://api.example", repository, ORGANIZATION, "Wayline");
+  const directory = join(root, "home", "organizations");
+  assert.equal((await stat(directory)).mode & 0o777, 0o700);
+  const [name] = await readdir(directory);
+  assert.match(name, /^[0-9a-f]{16}\.json$/);
+  assert.equal((await stat(join(directory, name))).mode & 0o777, 0o600);
+  assert.doesNotMatch(await readFile(join(directory, name), "utf8"), /api\.example|repo/);
+
+  const binding = await store.get("https://api.example", projectScope(nested));
+  assert.equal(binding.organization_id, ORGANIZATION);
+  assert.equal(binding.name, "Wayline");
+  await store.set("https://other.example", repository, REQUEST, "Other");
+  assert.equal((await store.get("https://api.example", repository)).organization_id, ORGANIZATION);
+  assert.equal(await store.delete("https://api.example", repository), true);
+  assert.equal(await store.delete("https://api.example", repository), false);
+});
+
+test("a directory binding supplies the organization and the meta reports its source", async () => {
+  const root = await mkdtemp(join(tmpdir(), "wayline-binding-runtime-test-"));
+  const repository = join(root, "repo");
+  await mkdir(join(repository, ".git"), { recursive: true });
+  const bindings = new OrganizationBindingStore(join(root, "home"));
+  const requests: ToolRequest[] = [];
+  const runtime = fakeRuntime(async (request) => {
+    requests.push(request);
+    return { data: { id: REQUEST }, requestId: "server-id" };
+  }, bindings);
+  const previous = process.cwd();
+  process.chdir(repository);
+  try {
+    const bound = await captureStdout(() => createProgram(runtime).parseAsync([
+      "node", "wayline-cli", "organization", "use", "--organization-id", ORGANIZATION,
+    ]));
+    assert.match(bound, /"Wayline"/);
+    assert.match(bound, new RegExp(ORGANIZATION));
+
+    const output = await captureStdout(() => createProgram(runtime).parseAsync([
+      "node", "wayline-cli", "delivery-request", "context", "--delivery-request-id", REQUEST,
+    ]));
+    assert.equal(requests[0].query?.get("organization_id"), ORGANIZATION);
+    assert.deepEqual(JSON.parse(output).meta, {
+      request_id: "server-id", warnings: [], organization_id: ORGANIZATION, organization_source: "binding",
+    });
+
+    const current = await captureStdout(() => createProgram(runtime).parseAsync(["node", "wayline-cli", "organization", "current"]));
+    assert.match(current, new RegExp(ORGANIZATION));
+
+    const overridden = await captureStdout(() => createProgram(runtime).parseAsync([
+      "node", "wayline-cli", "delivery-request", "get",
+      "--organization-id", REQUEST, "--delivery-request-id", REQUEST,
+    ]));
+    assert.equal(requests[1].query?.get("organization_id"), REQUEST);
+    assert.equal(JSON.parse(overridden).meta.organization_source, "flag");
+
+    await captureStdout(() => createProgram(runtime).parseAsync(["node", "wayline-cli", "organization", "unset"]));
+    await assert.rejects(
+      () => createProgram(runtime).parseAsync([
+        "node", "wayline-cli", "delivery-request", "context", "--delivery-request-id", REQUEST,
+      ]),
+      /no organization is bound/,
+    );
+  } finally {
+    process.chdir(previous);
+  }
 });
 
 test("credentials are isolated in private ~/.wayline-style files", async () => {
@@ -290,10 +371,14 @@ test("task graph input enforces the version protocol", async () => {
   assert.equal(value.schema_version, "task-graph-version/v1");
 });
 
-function fakeRuntime(callTool: (request: ToolRequest) => Promise<{ data: unknown; requestId: string }> = async () => ({ data: {}, requestId: "id" })) {
+function fakeRuntime(
+  callTool: (request: ToolRequest) => Promise<{ data: unknown; requestId: string }> = async () => ({ data: {}, requestId: "id" }),
+  bindings: OrganizationBindingStore = new OrganizationBindingStore(join(tmpdir(), "wayline-cli-test-no-bindings")),
+) {
   return {
-    client: { callTool } as unknown as HttpClient,
+    client: { callTool, request: async () => ({ id: ORGANIZATION, name: "Wayline" }) } as unknown as HttpClient,
     auth: { accessForOperation: async () => ({ credential: { refresh_token: "r", access_token: "a" }, refresh: Promise.resolve() }) } as unknown as UserAuth,
+    bindings,
   };
 }
 

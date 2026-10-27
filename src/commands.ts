@@ -2,7 +2,8 @@ import { Command } from "commander";
 import { buildInfo } from "./build.js";
 import { UserAuth, defaultDeviceName } from "./auth.js";
 import { HttpClient, ToolRequest } from "./http.js";
-import { TASK_GRAPH_VERSION_SCHEMA, ToolInvocation } from "./tool.js";
+import { OrganizationBindingNotFoundError, OrganizationBindingStore, projectScope } from "./organization-binding.js";
+import { OrganizationScope, TASK_GRAPH_VERSION_SCHEMA, ToolInvocation } from "./tool.js";
 import {
   deliveryRequestStatuses,
   enumValue,
@@ -36,6 +37,7 @@ type Options = Record<string, unknown>;
 export interface Runtime {
   client: HttpClient;
   auth: UserAuth;
+  bindings: OrganizationBindingStore;
 }
 
 export function createProgram(runtime: Runtime): Command {
@@ -98,16 +100,46 @@ function registerAuth(program: Command, auth: UserAuth): void {
 }
 
 function registerOrganization(program: Command, runtime: Runtime): void {
-  const group = program.command("organization").description("Read organizations available to the authenticated Hub User");
+  const group = program.command("organization").description("Read organizations available to the authenticated Hub User and bind the working directory to one");
   withPage(group.command("list").description("List organizations where the Hub User has an active membership"))
     .action(toolAction(runtime, async (options, invocation) => invocation.call({
       method: "GET", path: `${PREFIX}/organizations`, query: pageQuery(options),
     })));
   group.command("get").description("Get one organization")
-    .option("--organization-id <uuid>", "Organization UUID (required)")
+    .option("--organization-id <uuid>", "Organization UUID (default: the bound organization)")
     .action(toolAction(runtime, async (options, invocation) => invocation.call({
-      method: "GET", path: `${PREFIX}/organizations/${segment(requiredUUID("organization-id", options.organizationId))}`,
+      method: "GET", path: `${PREFIX}/organizations/${segment(String(options.organizationId))}`,
     })));
+  group.command("use").description("Bind the current project directory to an organization so later commands reuse it")
+    .option("--organization-id <uuid>", "Organization UUID (required)")
+    .action(async (options: Options) => {
+      const organizationID = requiredUUID("organization-id", options.organizationId);
+      const access = await runtime.auth.accessForOperation(true);
+      const organization = await runtime.client.request<{ name?: unknown }>(
+        "GET", `${PREFIX}/organizations/${segment(organizationID)}`, access.credential.access_token);
+      await access.refresh.catch(() => undefined);
+      const name = typeof organization?.name === "string" ? organization.name : "";
+      const scope = projectScope();
+      await runtime.bindings.set(buildInfo.apiURL, scope, organizationID, name);
+      process.stdout.write(`Bound ${scope} to organization ${name ? `"${name}" ` : ""}(${organizationID}).\n`);
+    });
+  group.command("current").description("Show the organization bound to the current project directory")
+    .action(async () => {
+      const scope = projectScope();
+      try {
+        const binding = await runtime.bindings.get(buildInfo.apiURL, scope);
+        process.stdout.write(`Bound to organization ${binding.name ? `"${binding.name}" ` : ""}(${binding.organization_id}) for ${scope}.\n`);
+      } catch (error) {
+        if (!(error instanceof OrganizationBindingNotFoundError)) throw error;
+        process.stdout.write(`No organization is bound to ${scope}. Run "wayline-cli organization use --organization-id <uuid>".\n`);
+      }
+    });
+  group.command("unset").description("Remove the organization binding of the current project directory")
+    .action(async () => {
+      const scope = projectScope();
+      const removed = await runtime.bindings.delete(buildInfo.apiURL, scope);
+      process.stdout.write(removed ? `Unbound organization for ${scope}.\n` : `No organization was bound to ${scope}.\n`);
+    });
 }
 
 function registerTaskGroup(program: Command, runtime: Runtime): void {
@@ -140,7 +172,7 @@ function registerTaskGroup(program: Command, runtime: Runtime): void {
 }
 
 function registerDeliveryRequest(program: Command, runtime: Runtime): void {
-  const group = program.command("delivery-request").description("Manage delivery requests in an explicitly selected organization");
+  const group = program.command("delivery-request").description("Manage delivery requests in the selected or bound organization");
   withPage(requestOrganization(group.command("list").description("List delivery requests in an organization")))
     .option("--task-group-id <uuid>", "Filter by task group UUID")
     .option("--status <status>", "Filter: planning / developing / completed")
@@ -338,11 +370,30 @@ function registerNodeComment(program: Command, runtime: Runtime): void {
 function toolAction(
   runtime: Runtime,
   action: (options: Options, invocation: ToolInvocation) => Promise<void>,
-): (options: Options) => Promise<void> {
-  return async (options) => {
+): (options: Options, command: Command) => Promise<void> {
+  return async (options, command) => {
     const invocation = new ToolInvocation(runtime.client, runtime.auth);
+    if (command.options.some((option) => option.attributeName() === "organizationId")) {
+      const scope = await resolveOrganization(runtime, options);
+      options.organizationId = scope.organization_id;
+      invocation.organization = scope;
+    }
     await action(options, invocation);
   };
+}
+
+async function resolveOrganization(runtime: Runtime, options: Options): Promise<OrganizationScope> {
+  if (options.organizationId != null) {
+    return { organization_id: requiredUUID("organization-id", options.organizationId), organization_source: "flag" };
+  }
+  const scope = projectScope();
+  try {
+    const binding = await runtime.bindings.get(buildInfo.apiURL, scope);
+    return { organization_id: binding.organization_id, organization_source: "binding" };
+  } catch (error) {
+    if (!(error instanceof OrganizationBindingNotFoundError)) throw error;
+    throw new Error(`no organization is bound to ${scope}; pass --organization-id <uuid> or run "wayline-cli organization use --organization-id <uuid>" after choosing one with "wayline-cli organization list"`);
+  }
 }
 
 function callRequest(suffix: string): (options: Options, invocation: ToolInvocation) => Promise<void> {
@@ -355,7 +406,7 @@ function withPage(command: Command): Command {
 }
 
 function requestOrganization(command: Command): Command {
-  return command.option("--organization-id <uuid>", "Organization UUID (required)");
+  return command.option("--organization-id <uuid>", "Organization UUID (default: the organization bound to this directory)");
 }
 
 function requestScope(command: Command): Command {
@@ -363,7 +414,7 @@ function requestScope(command: Command): Command {
 }
 
 function requestCollectionPath(options: Options): string {
-  return `${PREFIX}/organizations/${segment(requiredUUID("organization-id", options.organizationId))}/delivery-requests`;
+  return `${PREFIX}/organizations/${segment(String(options.organizationId))}/delivery-requests`;
 }
 
 function requestPath(options: Options): string {
@@ -371,11 +422,11 @@ function requestPath(options: Options): string {
 }
 
 function taskGroupPath(options: Options): string {
-  return `${PREFIX}/organizations/${segment(requiredUUID("organization-id", options.organizationId))}/task-groups`;
+  return `${PREFIX}/organizations/${segment(String(options.organizationId))}/task-groups`;
 }
 
 function organizationQuery(options: Options, query = new URLSearchParams()): URLSearchParams {
-  query.set("organization_id", requiredUUID("organization-id", options.organizationId));
+  query.set("organization_id", String(options.organizationId));
   return query;
 }
 
