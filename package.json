@@ -1,6 +1,6 @@
 {
   "name": "wayline-cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Wayline Agent CLI and skills for Hub Users",
   "type": "module",
   "bin": {
