@@ -1,4 +1,4 @@
-import { chmod, mkdir } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readdir } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,3 +23,16 @@ await build({
   },
 });
 await chmod(output, 0o755);
+
+const protocolDirectory = resolve(root, "protocol");
+const protocolConsumers = ["skills/wayline-estimate", "skills/wayline-review"];
+const protocolFiles = (await readdir(protocolDirectory)).sort();
+for (const consumer of protocolConsumers) {
+  const target = resolve(root, consumer, "references");
+  await mkdir(target, { recursive: true });
+  await Promise.all(
+    protocolFiles.map(async (file) => {
+      await copyFile(resolve(protocolDirectory, file), resolve(target, file));
+    }),
+  );
+}

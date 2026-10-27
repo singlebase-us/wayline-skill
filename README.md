@@ -186,6 +186,10 @@ npm link
 
 After linking, the local build is available as `wayline-cli`.
 
+### Task Graph protocol files
+
+`protocol/` is the single source of truth for the Task Graph contract. `npm run build` distributes every file in it into the skills that consume it (`skills/wayline-estimate/references/`, `skills/wayline-review/references/`). Those copies stay committed because Agent clients install skills from this repository rather than from the npm package, so edit only `protocol/`, rebuild, and commit the regenerated copies; CI fails when a committed copy drifts.
+
 ## License
 
 [MIT](LICENSE) © 2026 Singlebase

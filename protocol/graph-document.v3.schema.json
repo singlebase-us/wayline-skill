@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:wayline:protocol:graph-document:v3",
+  "title": "Wayline Graph Document v3",
+  "description": "Published read projection of a Wayline Task Graph. This is the authoritative contract shared by Hub, frontend, Skills, and CLI consumers.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "graph_type",
+    "graph_id",
+    "published_version_id",
+    "nodes",
+    "edges"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "graph-document/v3"
+    },
+    "graph_type": {
+      "const": "task-graph/v1"
+    },
+    "graph_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "published_version_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "nodes": {
+      "type": "array",
+      "maxItems": 2000,
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/taskNode"
+          },
+          {
+            "$ref": "#/$defs/summaryNode"
+          }
+        ]
+      }
+    },
+    "edges": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "$ref": "#/$defs/edge"
+      }
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "nodeRef": {
+      "type": "string",
+      "pattern": "^n_[A-Z0-9]{6,61}$"
+    },
+    "edgeRef": {
+      "type": "string",
+      "pattern": "^e_[A-Z0-9]{6,61}$"
+    },
+    "commentMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["comment_count"],
+      "properties": {
+        "comment_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "taskNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "type", "attributes", "metadata"],
+      "properties": {
+        "ref": {
+          "$ref": "#/$defs/nodeRef"
+        },
+        "type": {
+          "const": "task"
+        },
+        "attributes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["title", "description", "estimated_minutes", "estimate_source"],
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 255
+            },
+            "description": {
+              "type": "string",
+              "maxLength": 20000
+            },
+            "estimated_minutes": {
+              "type": ["integer", "null"],
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "estimate_source": {
+              "type": ["string", "null"],
+              "enum": ["manual", "ai", null]
+            }
+          }
+        },
+        "metadata": {
+          "$ref": "#/$defs/commentMetadata"
+        }
+      }
+    },
+    "summaryNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "type", "attributes", "metadata"],
+      "properties": {
+        "ref": {
+          "$ref": "#/$defs/nodeRef"
+        },
+        "type": {
+          "const": "summary"
+        },
+        "attributes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["title"],
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 255
+            }
+          }
+        },
+        "metadata": {
+          "$ref": "#/$defs/commentMetadata"
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "source", "target", "attributes"],
+      "properties": {
+        "ref": {
+          "$ref": "#/$defs/edgeRef"
+        },
+        "source": {
+          "$ref": "#/$defs/nodeRef"
+        },
+        "target": {
+          "$ref": "#/$defs/nodeRef"
+        },
+        "attributes": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "schema_version": "graph-document/v3",
+      "graph_type": "task-graph/v1",
+      "graph_id": "10000000-0000-4000-8000-000000000001",
+      "published_version_id": "20000000-0000-4000-8000-000000000001",
+      "nodes": [
+        {
+          "ref": "n_LOGIN01",
+          "type": "task",
+          "attributes": {
+            "title": "Implement the login API",
+            "description": "Validate the email address and password.",
+            "estimated_minutes": 480,
+            "estimate_source": "manual"
+          },
+          "metadata": {
+            "comment_count": 2
+          }
+        },
+        {
+          "ref": "n_SUMMARY1",
+          "type": "summary",
+          "attributes": {
+            "title": "Deliver the login capability"
+          },
+          "metadata": {
+            "comment_count": 0
+          }
+        }
+      ],
+      "edges": [
+        {
+          "ref": "e_LOGIN01",
+          "source": "n_LOGIN01",
+          "target": "n_SUMMARY1",
+          "attributes": {}
+        }
+      ]
+    }
+  ]
+}

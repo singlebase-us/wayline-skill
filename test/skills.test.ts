@@ -4,12 +4,17 @@ import { readdir, readFile } from "node:fs/promises";
 import test from "node:test";
 
 const skillsRoot = new URL("../skills/", import.meta.url);
+const protocolRoot = new URL("../protocol/", import.meta.url);
 const expectedSkills = [
   "wayline-estimate",
   "wayline-execution",
   "wayline-review",
   "wayline-workspace",
 ];
+const protocolConsumers: Record<string, string[]> = {
+  "wayline-estimate": ["estimation-method.md"],
+  "wayline-review": [],
+};
 
 test("the User package exposes the intent-scoped skill set", async () => {
   const entries = await readdir(skillsRoot, { withFileTypes: true });
@@ -27,19 +32,39 @@ test("execution remains read-only and projects state onto the current graph vers
   assert.match(contents, /This skill is read-only/);
   assert.doesNotMatch(contents, /task-execution update|node-comment create/);
 });
-test("estimate and review ship the same byte-identical authoritative Graph protocol", async () => {
-  for (const file of ["graph-document.v3.schema.json", "task-graph-version.v1.schema.json", "protocol-manifest.json", "task-graph-protocol.md"]) {
-    const estimate = await readFile(new URL(`wayline-estimate/references/${file}`, skillsRoot));
-    const review = await readFile(new URL(`wayline-review/references/${file}`, skillsRoot));
-    assert.deepEqual(review, estimate, file);
-  }
+test("protocol files ship from the repository root into every consumer skill", async () => {
+  const protocolFiles = (await readdir(protocolRoot)).sort();
+  assert.deepEqual(protocolFiles, [
+    "graph-document.v3.schema.json",
+    "protocol-manifest.json",
+    "task-graph-protocol.md",
+    "task-graph-version.v1.schema.json",
+  ]);
 
-  const references = new URL("wayline-estimate/references/", skillsRoot);
-  const manifest = JSON.parse(await readFile(new URL("protocol-manifest.json", references), "utf8")) as {
+  for (const [consumer, localReferences] of Object.entries(protocolConsumers)) {
+    const references = new URL(`${consumer}/references/`, skillsRoot);
+    let entries: string[];
+    try {
+      entries = (await readdir(references)).sort();
+    } catch {
+      return assert.fail(`${consumer}: run "npm run build" to distribute protocol/ into the skill`);
+    }
+    assert.deepEqual(entries, [...localReferences, ...protocolFiles].sort(), consumer);
+    for (const file of protocolFiles) {
+      assert.deepEqual(
+        await readFile(new URL(file, references)),
+        await readFile(new URL(file, protocolRoot)),
+        `${consumer}/references/${file}`,
+      );
+    }
+  }
+});
+test("the protocol manifest records its schema digests and stays ASCII-only", async () => {
+  const manifest = JSON.parse(await readFile(new URL("protocol-manifest.json", protocolRoot), "utf8")) as {
     files: Record<string, { sha256: string }>;
   };
   for (const [file, entry] of Object.entries(manifest.files)) {
-    const contents = await readFile(new URL(file, references));
+    const contents = await readFile(new URL(file, protocolRoot));
     assert.equal(createHash("sha256").update(contents).digest("hex"), entry.sha256, file);
     assert.doesNotMatch(contents.toString("utf8"), /[^\x00-\x7F]/u, file);
   }

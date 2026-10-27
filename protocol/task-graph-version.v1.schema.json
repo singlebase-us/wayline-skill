@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:wayline:protocol:task-graph-version:v1",
+  "title": "Wayline Task Graph Version v1",
+  "description": "Immutable Wayline Task Graph version snapshot used to generate, transfer, persist, diff, and review task graph changes across Hub, frontend, Skills, and CLIs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "graph"],
+  "properties": {
+    "schema_version": {
+      "const": "task-graph-version/v1"
+    },
+    "graph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodes", "edges"],
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "maxItems": 2000,
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/taskNode"
+              },
+              {
+                "$ref": "#/$defs/summaryNode"
+              }
+            ]
+          }
+        },
+        "edges": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {
+            "$ref": "#/$defs/edge"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "nodeRef": {
+      "type": "string",
+      "pattern": "^n_[A-Z0-9]{6,61}$"
+    },
+    "edgeRef": {
+      "type": "string",
+      "pattern": "^e_[A-Z0-9]{6,61}$"
+    },
+    "taskNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "type", "attributes"],
+      "properties": {
+        "ref": {
+          "$ref": "#/$defs/nodeRef"
+        },
+        "type": {
+          "const": "task"
+        },
+        "attributes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["title", "description", "estimated_minutes", "estimate_source"],
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 255
+            },
+            "description": {
+              "type": "string",
+              "maxLength": 20000
+            },
+            "estimated_minutes": {
+              "type": ["integer", "null"],
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "estimate_source": {
+              "type": ["string", "null"],
+              "enum": ["manual", "ai", null]
+            }
+          }
+        }
+      }
+    },
+    "summaryNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "type", "attributes"],
+      "properties": {
+        "ref": {
+          "$ref": "#/$defs/nodeRef"
+        },
+        "type": {
+          "const": "summary"
+        },
+        "attributes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["title"],
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 255
+            }
+          }
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "source", "target"],
+      "properties": {
+        "ref": {
+          "$ref": "#/$defs/edgeRef"
+        },
+        "source": {
+          "$ref": "#/$defs/nodeRef"
+        },
+        "target": {
+          "$ref": "#/$defs/nodeRef"
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "schema_version": "task-graph-version/v1",
+      "graph": {
+        "nodes": [
+          {
+            "ref": "n_LOGIN01",
+            "type": "task",
+            "attributes": {
+              "title": "Implement the login API",
+              "description": "Validate the email address and password.",
+              "estimated_minutes": 480,
+              "estimate_source": "manual"
+            }
+          },
+          {
+            "ref": "n_SUMMARY1",
+            "type": "summary",
+            "attributes": {
+              "title": "Deliver the login capability"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "ref": "e_LOGIN01",
+            "source": "n_LOGIN01",
+            "target": "n_SUMMARY1"
+          }
+        ]
+      }
+    }
+  ]
+}
