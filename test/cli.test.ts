@@ -388,8 +388,10 @@ test("--no-wait login prints the link and leaves the approval pending", async ()
   assert.ok(files.some((name) => /^user-pending-[0-9a-f]{16}\.json$/.test(name)));
   await assert.rejects(() => store.get("https://api.example"), CredentialsNotFoundError);
 
-  await captureStdout(() => createProgram(runtime).parseAsync(["node", "wayline-cli", "auth", "login", "--no-wait"]));
+  const resumed = await captureStdout(() => createProgram(runtime).parseAsync(["node", "wayline-cli", "auth", "login", "--no-wait"]));
   assert.equal(state.authorizations, 1);
+  assert.match(resumed, /already waiting for approval; reuse the link/);
+  assert.match(resumed, /https:\/\/app\.example\.com\/cli\/activate\?user_code=ABCD-EFGH/);
 
   const waiting = await captureStdout(() => createProgram(runtime).parseAsync(["node", "wayline-cli", "auth", "status"]));
   assert.match(waiting, /Login is waiting for browser approval/);
@@ -400,6 +402,11 @@ test("--no-wait login prints the link and leaves the approval pending", async ()
   assert.match(finished, /Authenticated as Hub User \(Tester\)/);
   assert.equal((await store.get("https://api.example")).refresh_token, "refresh");
   assert.equal(await store.getPending("https://api.example", new Date("2026-10-23T00:02:00.000Z")), null);
+
+  const signedIn = await captureStdout(() => createProgram(runtime).parseAsync(["node", "wayline-cli", "auth", "login", "--no-wait"]));
+  assert.match(signedIn, /Already authenticated; nothing to do/);
+  assert.doesNotMatch(signedIn, /user_code=/);
+  assert.equal(state.authorizations, 1);
 });
 
 test("a denied device authorization drops the pending login so a fresh one can start", async () => {

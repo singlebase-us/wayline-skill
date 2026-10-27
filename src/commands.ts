@@ -85,6 +85,10 @@ function registerAuth(program: Command, auth: UserAuth): void {
       const write = (value: string) => process.stdout.write(`${value}\n`);
       const noBrowser = options.browser === false || options.wait === false;
       if (options.wait === false) {
+        if (await auth.hasCredentials()) {
+          write("Already authenticated; nothing to do. Run wayline-cli auth status for the session details.");
+          return;
+        }
         await auth.startLogin(options.deviceName, noBrowser, write);
         write("Run wayline-cli auth status after you approve to finish logging in.");
         return;

@@ -71,7 +71,11 @@ export class UserAuth {
 
   async startLogin(deviceName: string, noBrowser: boolean, write: (value: string) => void): Promise<void> {
     await this.assertNotAuthenticated();
-    let pending = await this.store.getPending(this.apiURL, this.now());
+    const existing = await this.store.getPending(this.apiURL, this.now());
+    if (existing) {
+      write("A login is already waiting for approval; reuse the link below instead of starting another one.");
+    }
+    let pending = existing;
     if (!pending) {
       const authorization = await this.createDeviceAuthorization(deviceName);
       pending = {
@@ -124,6 +128,16 @@ export class UserAuth {
     }
     await this.store.deletePending(this.apiURL);
     throw new Error("device authorization expired; run auth login again");
+  }
+
+  async hasCredentials(): Promise<boolean> {
+    try {
+      await this.store.get(this.apiURL);
+      return true;
+    } catch (error) {
+      if (error instanceof CredentialsNotFoundError) return false;
+      throw error;
+    }
   }
 
   async pendingLogin(): Promise<PendingLogin | null> {

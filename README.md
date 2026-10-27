@@ -70,7 +70,7 @@ wayline-cli auth login --no-wait   # prints the verification link and returns
 wayline-cli auth status            # finishes the login once you have approved
 ```
 
-`auth status` reports the pending link until the approval lands, and completes the sign-in as soon as it is granted; repeating `--no-wait` prints the same pending link instead of requesting a second one. Check the current session at any time with:
+`auth status` reports the pending link until the approval lands, and completes the sign-in as soon as it is granted. `auth login --no-wait` is safe to repeat: it answers `Already authenticated` when a session already exists, and otherwise reprints the same pending link instead of requesting a second device authorization. Check the current session at any time with:
 
 ```bash
 wayline-cli auth status
