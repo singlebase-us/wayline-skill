@@ -1,6 +1,6 @@
 import { hostname, platform, arch } from "node:os";
 import { spawn } from "node:child_process";
-import { Credential, CredentialStore } from "./credentials.js";
+import { Credential, CredentialStore, PendingLogin } from "./credentials.js";
 import { CredentialsNotFoundError, isInvalidCredential, OAuthError } from "./errors.js";
 import { HttpClient } from "./http.js";
 
@@ -69,33 +69,44 @@ export class UserAuth {
     }));
   }
 
-  async login(deviceName: string, noBrowser: boolean, write: (value: string) => void): Promise<void> {
-    try {
-      await this.store.get(this.apiURL);
-      throw new Error("already authenticated; run wayline-cli auth logout before logging in again");
-    } catch (error) {
-      if (!(error instanceof CredentialsNotFoundError)) throw error;
+  async startLogin(deviceName: string, noBrowser: boolean, write: (value: string) => void): Promise<void> {
+    await this.assertNotAuthenticated();
+    let pending = await this.store.getPending(this.apiURL, this.now());
+    if (!pending) {
+      const authorization = await this.createDeviceAuthorization(deviceName);
+      pending = {
+        device_code: authorization.device_code,
+        user_code: authorization.user_code,
+        verification_uri: authorization.verification_uri,
+        verification_uri_complete: authorization.verification_uri_complete,
+        expires_at: new Date(this.now().getTime() + authorization.expires_in * 1_000).toISOString(),
+        interval: authorization.interval,
+      };
+      await this.store.setPending(this.apiURL, pending);
     }
-    const authorization = await this.createDeviceAuthorization(deviceName);
     if (noBrowser) {
-      writeBrowserFallback(authorization, write);
+      writeBrowserFallback(pending, write);
     } else {
       write("Opening your browser to confirm this Wayline CLI login...");
       try {
-        await this.browserOpener(authorization.verification_uri_complete);
-      } catch (error) {
-        process.stderr.write(`warning: ${error instanceof Error ? error.message : String(error)}\n`);
-        writeBrowserFallback(authorization, write);
+        await this.browserOpener(pending.verification_uri_complete);
+      } catch {
+        write("Could not open your browser automatically; use the link below instead.");
+        writeBrowserFallback(pending, write);
       }
     }
-    let interval = authorization.interval * 1_000;
-    const deadline = this.now().getTime() + authorization.expires_in * 1_000;
-    let token: UserToken | undefined;
-    while (this.now().getTime() < deadline) {
+  }
+
+  async login(deviceName: string, noBrowser: boolean, write: (value: string) => void): Promise<void> {
+    await this.startLogin(deviceName, noBrowser, write);
+    const pending = await this.pendingOrExpired();
+    let interval = pending.interval * 1_000;
+    const deadline = Date.parse(pending.expires_at);
+    while (Number.isFinite(deadline) && this.now().getTime() < deadline) {
       await this.wait(interval);
       try {
-        token = await this.exchangeDeviceCode(authorization.device_code);
-        break;
+        await this.storeCredentials(await this.exchangeDeviceCode(pending.device_code));
+        return;
       } catch (error) {
         if (!(error instanceof OAuthError)) throw error;
         if (error.code === "authorization_pending") continue;
@@ -103,12 +114,62 @@ export class UserAuth {
           interval += 5_000;
           continue;
         }
+        await this.store.deletePending(this.apiURL);
         if (error.code === "access_denied") throw new Error("device authorization was denied");
-        if (error.code === "expired_token") throw new Error("device authorization expired; run auth login again");
+        if (["expired_token", "invalid_grant"].includes(error.code)) {
+          throw new Error("device authorization expired; run auth login again");
+        }
         throw error;
       }
     }
-    if (!token) throw new Error("device authorization expired; run auth login again");
+    await this.store.deletePending(this.apiURL);
+    throw new Error("device authorization expired; run auth login again");
+  }
+
+  async pendingLogin(): Promise<PendingLogin | null> {
+    try {
+      await this.store.get(this.apiURL);
+      return null;
+    } catch (error) {
+      if (!(error instanceof CredentialsNotFoundError)) throw error;
+    }
+    return this.store.getPending(this.apiURL, this.now());
+  }
+
+  /** Finishes a login that was started without waiting. Returns false while the browser approval is still pending. */
+  async finishPendingLogin(): Promise<boolean> {
+    const pending = await this.pendingLogin();
+    if (!pending) return false;
+    try {
+      await this.storeCredentials(await this.exchangeDeviceCode(pending.device_code));
+      return true;
+    } catch (error) {
+      if (error instanceof OAuthError && error.code === "authorization_pending") return false;
+      if (error instanceof OAuthError && ["access_denied", "expired_token", "invalid_grant"].includes(error.code)) {
+        await this.store.deletePending(this.apiURL);
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  private async pendingOrExpired(): Promise<PendingLogin> {
+    const pending = await this.store.getPending(this.apiURL, this.now());
+    if (!pending) throw new Error("device authorization expired; run auth login again");
+    return pending;
+  }
+
+  private async assertNotAuthenticated(): Promise<void> {
+    try {
+      await this.store.get(this.apiURL);
+    } catch (error) {
+      if (error instanceof CredentialsNotFoundError) return;
+      throw error;
+    }
+    throw new Error("already authenticated; run wayline-cli auth logout before logging in again");
+  }
+
+  private async storeCredentials(token: UserToken): Promise<void> {
     const now = this.now();
     const credential: Credential = {
       refresh_token: token.refresh_token,
@@ -123,6 +184,7 @@ export class UserAuth {
       await this.revoke(token.access_token).catch(() => undefined);
       throw new Error(`store login credentials (remote session was revoked): ${message(error)}`);
     }
+    await this.store.deletePending(this.apiURL);
   }
 
   async status(): Promise<UserSession> {
@@ -145,6 +207,8 @@ export class UserAuth {
   }
 
   async logout(): Promise<"already" | "removed" | "revoked"> {
+    // An abandoned sign-in must not be resumable after the user asked to be signed out.
+    await this.store.deletePending(this.apiURL);
     let access: AccessContext;
     try {
       access = await this.accessForOperation(false);
@@ -239,7 +303,7 @@ export class UserAuth {
 }
 
 function writeBrowserFallback(
-  authorization: DeviceAuthorization,
+  authorization: { user_code: string; verification_uri: string; verification_uri_complete: string },
   write: (value: string) => void,
 ): void {
   write("Open this URL in a browser to confirm the Wayline CLI login:");

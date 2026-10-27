@@ -15,6 +15,15 @@ export interface Credential {
   refresh_expires_at?: string;
 }
 
+export interface PendingLogin {
+  device_code: string;
+  user_code: string;
+  verification_uri: string;
+  verification_uri_complete: string;
+  expires_at: string;
+  interval: number;
+}
+
 const ACTOR = "user";
 
 export class CredentialStore {
@@ -28,48 +37,77 @@ export class CredentialStore {
     return join(this.root, "credentials", `${ACTOR}-${this.key(apiURL)}.json`);
   }
 
+  private pendingPath(apiURL: string): string {
+    return join(this.root, "credentials", `${ACTOR}-pending-${this.key(apiURL)}.json`);
+  }
+
   private lockPath(apiURL: string): string {
     return join(this.root, "locks", `${ACTOR}-${this.key(apiURL)}.v2.lock`);
   }
 
   async get(apiURL: string): Promise<Credential> {
-    const path = this.path(apiURL);
+    const value = await this.readJSON(this.path(apiURL), "stored credentials are invalid; run auth login again");
+    if (value === null) throw new CredentialsNotFoundError();
+    if (typeof (value as Credential).refresh_token !== "string" || !(value as Credential).refresh_token) {
+      throw new Error("stored credentials are invalid; run auth login again");
+    }
+    return value as Credential;
+  }
+
+  async getPending(apiURL: string, now = new Date()): Promise<PendingLogin | null> {
+    const value = await this.readJSON(this.pendingPath(apiURL), "stored device authorization is invalid; run auth login again");
+    if (value === null) return null;
+    const pending = value as Partial<PendingLogin>;
+    if (typeof pending.device_code !== "string" || !pending.device_code ||
+      typeof pending.verification_uri_complete !== "string" || !pending.verification_uri_complete) {
+      throw new Error("stored device authorization is invalid; run auth login again");
+    }
+    const expires = Date.parse(pending.expires_at ?? "");
+    if (Number.isFinite(expires) && now.getTime() >= expires) {
+      await this.deletePending(apiURL);
+      return null;
+    }
+    return {
+      device_code: pending.device_code,
+      user_code: typeof pending.user_code === "string" ? pending.user_code : "",
+      verification_uri: typeof pending.verification_uri === "string" ? pending.verification_uri : "",
+      verification_uri_complete: pending.verification_uri_complete,
+      expires_at: typeof pending.expires_at === "string" ? pending.expires_at : "",
+      interval: typeof pending.interval === "number" && pending.interval > 0 ? pending.interval : 5,
+    };
+  }
+
+  async setPending(apiURL: string, pending: PendingLogin): Promise<void> {
+    if (!pending.device_code) throw new Error("refusing to store an empty device code");
+    await writePrivate(this.pendingPath(apiURL), pending);
+  }
+
+  async deletePending(apiURL: string): Promise<void> {
+    await rm(this.pendingPath(apiURL), { force: true });
+  }
+
+  private async readJSON(path: string, invalid: string): Promise<unknown | null> {
     let info;
     try {
       info = await lstat(path);
     } catch (error) {
-      if (isNotFound(error)) throw new CredentialsNotFoundError();
+      if (isNotFound(error)) return null;
       throw error;
     }
     if (!info.isFile() || info.isSymbolicLink()) throw new Error("credential path must be a regular file");
     if (process.platform !== "win32" && (info.mode & 0o077) !== 0) {
       throw new Error(`credential file permissions must be 0600, got 0${(info.mode & 0o777).toString(8)}`);
     }
-    let value: unknown;
     try {
-      value = JSON.parse(await readFile(path, "utf8"));
+      return JSON.parse(await readFile(path, "utf8"));
     } catch {
-      throw new Error("stored credentials are invalid; run auth login again");
+      throw new Error(invalid);
     }
-    if (!value || typeof value !== "object" || typeof (value as Credential).refresh_token !== "string" || !(value as Credential).refresh_token) {
-      throw new Error("stored credentials are invalid; run auth login again");
-    }
-    return value as Credential;
   }
 
   async set(apiURL: string, credential: Credential): Promise<void> {
     if (!credential.refresh_token) throw new Error("refusing to store an empty refresh token");
-    const path = this.path(apiURL);
-    await privateDirectory(dirname(path));
-    const temporary = join(dirname(path), `.credential-${process.pid}-${randomUUID()}`);
-    try {
-      await writeFile(temporary, `${JSON.stringify(credential, null, 2)}\n`, { mode: 0o600, flag: "wx" });
-      await chmod(temporary, 0o600);
-      if (process.platform === "win32") await rm(path, { force: true });
-      await rename(temporary, path);
-    } finally {
-      await rm(temporary, { force: true });
-    }
+    await writePrivate(this.path(apiURL), credential);
   }
 
   async delete(apiURL: string): Promise<void> {
@@ -105,6 +143,19 @@ export class CredentialStore {
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
     }
+  }
+}
+
+async function writePrivate(path: string, value: unknown): Promise<void> {
+  await privateDirectory(dirname(path));
+  const temporary = join(dirname(path), `.credential-${process.pid}-${randomUUID()}`);
+  try {
+    await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+    await chmod(temporary, 0o600);
+    if (process.platform === "win32") await rm(path, { force: true });
+    await rename(temporary, path);
+  } finally {
+    await rm(temporary, { force: true });
   }
 }
 

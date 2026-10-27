@@ -80,13 +80,32 @@ function registerAuth(program: Command, auth: UserAuth): void {
     .description("Start browser device authorization")
     .option("--device-name <name>", "Device name shown during approval", defaultDeviceName())
     .option("--no-browser", "Do not open the verification URL")
-    .action(async (options: { deviceName: string; browser: boolean }) => {
-      await auth.login(options.deviceName, options.browser === false, (value) => process.stdout.write(`${value}\n`));
+    .option("--no-wait", "Print the verification URL and return immediately; finish with auth status")
+    .action(async (options: { deviceName: string; browser: boolean; wait: boolean }) => {
+      const write = (value: string) => process.stdout.write(`${value}\n`);
+      const noBrowser = options.browser === false || options.wait === false;
+      if (options.wait === false) {
+        await auth.startLogin(options.deviceName, noBrowser, write);
+        write("Run wayline-cli auth status after you approve to finish logging in.");
+        return;
+      }
+      await auth.login(options.deviceName, noBrowser, write);
       process.stdout.write("Authenticated as a Hub User.\n");
     });
   command.command("status")
-    .description("Show the current Hub User authentication status")
+    .description("Show the current Hub User authentication status, and finish a pending login once approved")
     .action(async () => {
+      if (!await auth.finishPendingLogin()) {
+        const pending = await auth.pendingLogin();
+        if (pending) {
+          process.stdout.write(`Login is waiting for browser approval: ${pending.verification_uri_complete}\n`);
+          if (pending.user_code) {
+            process.stdout.write(`Or open ${pending.verification_uri} and enter code: ${pending.user_code}\n`);
+          }
+          process.stdout.write("Run wayline-cli auth status again after you approve.\n");
+          return;
+        }
+      }
       const session = await auth.status();
       process.stdout.write(`Authenticated as Hub User (${session.display_name}). Session expires after inactivity at ${session.idle_expires_at}; absolute expiry ${session.absolute_expires_at}.\n`);
     });

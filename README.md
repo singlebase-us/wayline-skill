@@ -63,7 +63,14 @@ Installing skills does not install the CLI. If an agent reports that `wayline-cl
 wayline-cli auth login
 ```
 
-The CLI opens a browser for Wayline authorization. Check the current session at any time with:
+The CLI opens a browser for Wayline authorization and waits until you approve. In a headless shell, or when an AI agent runs the login, start it without waiting and check back afterwards:
+
+```bash
+wayline-cli auth login --no-wait   # prints the verification link and returns
+wayline-cli auth status            # finishes the login once you have approved
+```
+
+`auth status` reports the pending link until the approval lands, and completes the sign-in as soon as it is granted; repeating `--no-wait` prints the same pending link instead of requesting a second one. Check the current session at any time with:
 
 ```bash
 wayline-cli auth status

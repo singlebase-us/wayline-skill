@@ -8,7 +8,7 @@ import test from "node:test";
 import { UserAuth } from "../src/auth.js";
 import { createProgram, USER_TOOLS } from "../src/commands.js";
 import { CredentialStore } from "../src/credentials.js";
-import { ApiError, ToolError } from "../src/errors.js";
+import { ApiError, CredentialsNotFoundError, OAuthError, ToolError } from "../src/errors.js";
 import { HttpClient, ToolRequest } from "../src/http.js";
 import { OrganizationBindingStore, projectScope } from "../src/organization-binding.js";
 import { readTaskGraphVersion } from "../src/validation.js";
@@ -357,6 +357,81 @@ test("no-browser device login prints the complete URL and keeps the user code as
   assert.match(writes[2] ?? "", /enter code: ABCD-EFGH/);
 });
 
+test("--no-wait login prints the link and leaves the approval pending", async () => {
+  const root = await mkdtemp(join(tmpdir(), "wayline-no-wait-login-test-"));
+  const state = { approved: false, authorizations: 0 };
+  const store = new CredentialStore(root);
+  const client = deviceFlowClient(state);
+  let opened = 0;
+  const auth = new UserAuth(
+    client,
+    "https://api.example",
+    store,
+    () => new Date("2026-10-23T00:00:00.000Z"),
+    async () => { opened++; },
+    async () => { throw new Error("a non-blocking login must not wait"); },
+  );
+  const runtime = { client, auth, bindings: new OrganizationBindingStore(join(root, "bindings")) };
+
+  const started = await captureStdout(() => createProgram(runtime).parseAsync([
+    "node", "wayline-cli", "auth", "login", "--no-wait", "--device-name", "Workstation",
+  ]));
+  assert.match(started, /https:\/\/app\.example\.com\/cli\/activate\?user_code=ABCD-EFGH/);
+  assert.match(started, /enter code: ABCD-EFGH/);
+  assert.match(started, /Run wayline-cli auth status after you approve/);
+  assert.equal(opened, 0);
+  assert.equal(state.authorizations, 1);
+
+  const pending = await store.getPending("https://api.example", new Date("2026-10-23T00:01:00.000Z"));
+  assert.equal(pending?.device_code, "device-1");
+  const files = await readdir(join(root, "credentials"));
+  assert.ok(files.some((name) => /^user-pending-[0-9a-f]{16}\.json$/.test(name)));
+  await assert.rejects(() => store.get("https://api.example"), CredentialsNotFoundError);
+
+  await captureStdout(() => createProgram(runtime).parseAsync(["node", "wayline-cli", "auth", "login", "--no-wait"]));
+  assert.equal(state.authorizations, 1);
+
+  const waiting = await captureStdout(() => createProgram(runtime).parseAsync(["node", "wayline-cli", "auth", "status"]));
+  assert.match(waiting, /Login is waiting for browser approval/);
+  await assert.rejects(() => store.get("https://api.example"), CredentialsNotFoundError);
+
+  state.approved = true;
+  const finished = await captureStdout(() => createProgram(runtime).parseAsync(["node", "wayline-cli", "auth", "status"]));
+  assert.match(finished, /Authenticated as Hub User \(Tester\)/);
+  assert.equal((await store.get("https://api.example")).refresh_token, "refresh");
+  assert.equal(await store.getPending("https://api.example", new Date("2026-10-23T00:02:00.000Z")), null);
+});
+
+test("a denied device authorization drops the pending login so a fresh one can start", async () => {
+  const root = await mkdtemp(join(tmpdir(), "wayline-denied-login-test-"));
+  const store = new CredentialStore(root);
+  const auth = new UserAuth(
+    deviceFlowClient({ approved: false, authorizations: 0 }, "access_denied"),
+    "https://api.example",
+    store,
+    () => new Date("2026-10-23T00:00:00.000Z"),
+  );
+  await auth.startLogin("Workstation", true, () => undefined);
+  assert.ok(await store.getPending("https://api.example", new Date("2026-10-23T00:01:00.000Z")));
+  assert.equal(await auth.finishPendingLogin(), false);
+  assert.equal(await store.getPending("https://api.example", new Date("2026-10-23T00:01:00.000Z")), null);
+});
+
+test("auth logout discards a pending login", async () => {
+  const root = await mkdtemp(join(tmpdir(), "wayline-logout-pending-test-"));
+  const store = new CredentialStore(root);
+  const auth = new UserAuth(
+    deviceFlowClient({ approved: false, authorizations: 0 }),
+    "https://api.example",
+    store,
+    () => new Date("2026-10-23T00:00:00.000Z"),
+  );
+  await auth.startLogin("Workstation", true, () => undefined);
+  assert.ok(await store.getPending("https://api.example", new Date("2026-10-23T00:01:00.000Z")));
+  assert.equal(await auth.logout(), "already");
+  assert.equal(await store.getPending("https://api.example", new Date("2026-10-23T00:01:00.000Z")), null);
+});
+
 test("task graph input enforces the version protocol", async () => {
   const root = await mkdtemp(join(tmpdir(), "wayline-graph-test-"));
   const path = join(root, "graph.json");
@@ -380,6 +455,45 @@ function fakeRuntime(
     auth: { accessForOperation: async () => ({ credential: { refresh_token: "r", access_token: "a" }, refresh: Promise.resolve() }) } as unknown as UserAuth,
     bindings,
   };
+}
+
+function deviceFlowClient(state: { approved: boolean; authorizations: number }, denyCode = ""): HttpClient {
+  return {
+    request: async (_method: string, path: string) => {
+      if (path.endsWith("/device-authorizations")) {
+        state.authorizations++;
+        return {
+          device_code: `device-${state.authorizations}`,
+          user_code: "ABCD-EFGH",
+          verification_uri: "https://app.example.com/cli/activate",
+          verification_uri_complete: "https://app.example.com/cli/activate?user_code=ABCD-EFGH",
+          expires_in: 600,
+          interval: 5,
+        };
+      }
+      if (path.endsWith("/cli/token")) {
+        if (denyCode) throw new OAuthError(denyCode);
+        if (!state.approved) throw new OAuthError("authorization_pending");
+        return {
+          access_token: "access",
+          refresh_token: "refresh",
+          token_type: "Bearer",
+          expires_in: 900,
+          refresh_expires_in: 2_592_000,
+        };
+      }
+      return {
+        id: "session-1",
+        client_id: "wayline-cli",
+        status: "active",
+        display_name: "Tester",
+        absolute_expires_at: "2026-10-24T00:00:00.000Z",
+        idle_expires_at: "2026-10-23T01:00:00.000Z",
+        last_used_at: "2026-10-23T00:00:00.000Z",
+        created_at: "2026-10-23T00:00:00.000Z",
+      };
+    },
+  } as unknown as HttpClient;
 }
 
 function deviceLoginClient(): HttpClient {
