@@ -6,7 +6,7 @@ metadata:
   cliHelp: "wayline-cli organization --help && wayline-cli task-group --help && wayline-cli delivery-request --help"
 ---
 
-Use the pre-installed `wayline-cli` for every Wayline operation. Do not call Hub HTTP endpoints directly or inspect files under `~/.wayline`.
+Use the pre-installed `wayline-cli` for every Wayline operation. Do not call Hub HTTP endpoints directly or inspect files under `~/.wayline`. If `wayline-cli` is missing or the shell reports command not found, tell the user to install it with `npm install -g wayline-cli`, wait until they confirm, then retry; never substitute direct HTTP calls, web fetches, or browser use.
 
 Before the first business command, run `wayline-cli auth status`. If it is not authenticated, run `wayline-cli auth login` and let the user complete device approval. Use the relevant nested `--help` before constructing an unfamiliar command.
 
