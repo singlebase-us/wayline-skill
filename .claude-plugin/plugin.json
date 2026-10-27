@@ -2,6 +2,19 @@
   "name": "wayline",
   "version": "0.1.0",
   "description": "Wayline Hub User CLI and intent-scoped Agent skills",
+  "author": {
+    "name": "singlebase-us",
+    "url": "https://github.com/singlebase-us"
+  },
+  "repository": "https://github.com/singlebase-us/wayline-skill",
   "license": "MIT",
+  "keywords": [
+    "wayline",
+    "agent-cli",
+    "task-graph",
+    "delivery-request",
+    "estimation",
+    "approval"
+  ],
   "skills": "./skills/"
 }
