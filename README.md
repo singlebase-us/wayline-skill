@@ -37,7 +37,7 @@ The package contains only the commands and workflows available to an authenticat
 Requires Node.js 20 or later.
 
 ```bash
-npm install -g skill-wayline
+npm install -g wayline-cli
 ```
 
 Verify the installation:
@@ -54,6 +54,8 @@ npx skills add singlebase-us/wayline-skill
 ```
 
 Restart your AI client after installation so it can discover the new skills.
+
+Installing skills does not install the CLI. If an agent reports that `wayline-cli` cannot be found, run `npm install -g wayline-cli` and retry.
 
 ### 3. Sign in
 
@@ -167,7 +169,7 @@ Errors caught locally, such as a missing or invalid command option, are printed 
 ## Upgrade
 
 ```bash
-npm install -g skill-wayline@latest
+npm install -g wayline-cli@latest
 npx skills add singlebase-us/wayline-skill
 wayline-cli --version
 ```
