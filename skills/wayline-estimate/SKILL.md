@@ -16,10 +16,10 @@ Work in the intended Organization: pass `--organization-id` when the user named 
 
 - Before estimating, read [references/estimation-method.md](references/estimation-method.md) and follow its evidence, decomposition, estimation, and reporting contract.
 - Inspect the local codebase whenever it is available. Build the minimum sufficient model of the affected behavior; do not turn estimation into implementation or an exhaustive repository audit.
-- Estimate developer delivery effort, not Agent runtime, token use, calendar duration, or elapsed waiting time. A task estimate covers the work needed to reach its stated definition of done.
+- Estimate AI-assisted human attention effort: the time a developer working with coding Agents actively spends, not unattended Agent runtime, token use, calendar duration, or elapsed waiting time. Estimate it directly; never discount a traditional baseline or apply published AI productivity multipliers. A task estimate covers the work needed to reach its stated definition of done.
 - If no codebase is available, label the result requirement-only, widen the range, lower confidence, and avoid invented implementation detail.
 - Keep private reasoning local. The Hub stores submitted workflow data, not the Agent's analysis transcript.
-- Present the user with scope, assumptions, evidence, risks, task-level ranges, confidence, total effort, and the point values proposed for the graph. Use `estimate_source: "ai"` for Agent estimates; use null for both estimate fields when no defensible point estimate can be supported.
+- Present the user with scope, assumptions, evidence, risks, task-level ranges, confidence, calibration basis, total effort with P80, the capacity it consumes when capacity was supplied, and the point values proposed for the graph. Use `estimate_source: "ai"` for Agent estimates; use null for both estimate fields when no defensible point estimate can be supported.
 
 ## Task Graph versions
 
