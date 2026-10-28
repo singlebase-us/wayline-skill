@@ -170,7 +170,7 @@ Successful API operations and API-level failures use the `wayline-cli-result/v1`
 }
 ```
 
-Business commands resolve the organization in this order: an explicit `--organization-id`, then the binding stored for the current project directory, then a human-readable error that tells you to pick one. `organization_source` is `flag` or `binding`, so the organization actually used is always visible in the result. A binding is keyed by the Git project root and by the API base URL, and is stored under `~/.wayline/organizations/`.
+Business commands resolve the organization in this order: an explicit `--organization-id`, then the binding stored for the current project directory, then the user's only organization when they belong to exactly one (used without being bound), then a human-readable error that tells you to pick one. `organization_source` is `flag`, `binding`, or `single_membership`, so the organization actually used is always visible in the result. A binding is keyed by the Git project root and by the API base URL, and is stored under `~/.wayline/organizations/`.
 
 Errors caught locally, such as a missing or invalid command option, are printed as human-readable text to stderr.
 

@@ -8,14 +8,14 @@ export const TASK_GRAPH_VERSION_SCHEMA = "task-graph-version/v1";
 
 export interface OrganizationScope {
   organization_id: string;
-  organization_source: "flag" | "binding";
+  organization_source: "flag" | "binding" | "single_membership";
 }
 
 interface ToolMeta {
   request_id: string;
   warnings: string[];
   organization_id?: string;
-  organization_source?: "flag" | "binding";
+  organization_source?: OrganizationScope["organization_source"];
 }
 
 export function writeJSON(value: unknown, stream: NodeJS.WritableStream = process.stdout): void {
@@ -33,12 +33,13 @@ export function writeToolError(error: ToolError): void {
 
 export class ToolInvocation {
   readonly id = randomUUID();
+  readonly warnings: string[] = [];
   organization?: OrganizationScope;
 
   constructor(readonly client: HttpClient, readonly auth: UserAuth) {}
 
   localSuccess(data: unknown): void {
-    this.success(data, this.id, []);
+    this.success(data, this.id);
   }
 
   failure(code: string, message: string, retryable = false, details?: Record<string, unknown>): ToolError {
@@ -68,7 +69,16 @@ export class ToolInvocation {
     return this.failure("transport_error", message(error), true);
   }
 
-  async call(request: ToolRequest): Promise<void> {
+  async call(request: ToolRequest, select: (data: unknown) => unknown | Promise<unknown> = (data) => data): Promise<void> {
+    const response = await this.send(request);
+    this.success(await select(response.data), response.requestId || this.id);
+  }
+
+  async fetch(request: ToolRequest): Promise<unknown> {
+    return (await this.send(request)).data;
+  }
+
+  private async send(request: ToolRequest): Promise<{ data: unknown; requestId: string }> {
     let access;
     try {
       access = await this.auth.accessForOperation(true);
@@ -79,18 +89,18 @@ export class ToolInvocation {
     request.headers = { ...(request.headers ?? {}), "X-Request-ID": this.id };
     const [operation, refresh] = await Promise.allSettled([this.client.callTool(request), access.refresh]);
     if (operation.status === "rejected") throw this.wrap(operation.reason);
-    const warnings = refresh.status === "rejected"
-      ? [`could not refresh Hub User Access Token: ${message(refresh.reason)}`]
-      : [];
-    this.success(operation.value.data, operation.value.requestId || this.id, warnings);
+    if (refresh.status === "rejected") {
+      this.warnings.push(`could not refresh Hub User Access Token: ${message(refresh.reason)}`);
+    }
+    return operation.value;
   }
 
-  private success(data: unknown, requestId: string, warnings: string[]): void {
+  private success(data: unknown, requestId: string): void {
     writeJSON({
       schema: RESULT_SCHEMA,
       ok: true,
       data,
-      meta: meta(requestId, warnings, this.organization),
+      meta: meta(requestId, this.warnings, this.organization),
     });
   }
 }

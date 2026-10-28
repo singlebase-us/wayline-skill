@@ -74,6 +74,7 @@ Each task should produce one independently reviewable outcome with a clear defin
 - Split a task when it crosses independent subsystems, has materially different risks, or cannot be estimated without hiding a large unknown.
 - Do not split into cosmetic micro-tasks merely to make estimates look precise; every task carries fixed overhead.
 - Model real precedence with edges. Do not use edges to express staffing preferences or arbitrary sequence.
+- Every task must reach the Summary through some path, not through its own edge. Link only terminal tasks, those no other task depends on, directly to the Summary, and follow the edge authoring rules in the Task Graph protocol.
 - Keep the Summary node free of estimates and execution work.
 
 For an existing graph, preserve every surviving node and edge ref. Change structure only where the revised scope or code evidence requires it.
@@ -151,7 +152,7 @@ Before presenting the result:
 
 1. Confirm every requirement and necessary delivery obligation maps to a task or an explicit exclusion.
 2. Check that task definitions do not overlap and shared overhead is counted once.
-3. Check that edges reflect actual dependency direction and the graph satisfies the Task Graph protocol.
+3. Check that edges reflect actual dependency direction and the graph satisfies the Task Graph protocol, including its edge authoring rules: for each Summary edge, confirm its source has no other outgoing edge, and remove any edge already implied by a longer path. Run `version check` on the candidate file; it reports both cases as `redundant_edge`.
 4. Sum the graph point values as **total effort**. Do not call the sum delivery duration.
 5. Aggregate uncertainty. Treat tasks that share the same unknown as fully correlated:
 

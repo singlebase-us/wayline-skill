@@ -453,8 +453,109 @@ test("task graph input enforces the version protocol", async () => {
   assert.equal(value.schema_version, "task-graph-version/v1");
 });
 
+test("version check reports graph findings locally without calling the Hub", async () => {
+  const root = await mkdtemp(join(tmpdir(), "wayline-check-test-"));
+  const input = join(root, "version.json");
+  await writeFile(input, JSON.stringify(shortcutGraph()));
+  const runtime = fakeRuntime(async () => assert.fail("version check must not call the Hub"));
+  const output = JSON.parse(await captureStdout(() => createProgram(runtime).parseAsync([
+    "node", "wayline-cli", "version", "check", "--input", input,
+  ])));
+  assert.equal(output.ok, true);
+  assert.equal(output.data.publishable, true);
+  assert.deepEqual(output.data.warnings.map((finding: { refs: string[] }) => finding.refs), [["e_SHORTCUT"]]);
+  assert.equal(output.meta.organization_id, undefined);
+});
+
+test("version submit echoes graph findings in meta warnings without blocking", async () => {
+  const root = await mkdtemp(join(tmpdir(), "wayline-submit-warn-test-"));
+  const input = join(root, "version.json");
+  await writeFile(input, JSON.stringify(shortcutGraph()));
+  let submitted = false;
+  const runtime = fakeRuntime(async () => { submitted = true; return { data: { id: VERSION }, requestId: "server-id" }; });
+  const output = JSON.parse(await captureStdout(() => createProgram(runtime).parseAsync([
+    "node", "wayline-cli", "version", "submit",
+    "--organization-id", ORGANIZATION, "--delivery-request-id", REQUEST,
+    "--expected-current-version-id", VERSION, "--input", input,
+  ])));
+  assert.equal(submitted, true);
+  assert.equal(output.meta.warnings.length, 1);
+  assert.match(output.meta.warnings[0], /^redundant_edge: edge e_SHORTCUT links n_STAGE001 directly to the summary/);
+});
+
+test("version get --output writes an editable payload file and keeps it out of stdout", async () => {
+  const root = await mkdtemp(join(tmpdir(), "wayline-get-output-test-"));
+  const file = join(root, "version.json");
+  const payload = shortcutGraph();
+  const runtime = fakeRuntime(async () => ({
+    data: { id: VERSION, content_hash: "hash", version_payload: payload }, requestId: "server-id",
+  }));
+  const output = JSON.parse(await captureStdout(() => createProgram(runtime).parseAsync([
+    "node", "wayline-cli", "version", "get",
+    "--organization-id", ORGANIZATION, "--delivery-request-id", REQUEST,
+    "--version-id", VERSION, "--output", file,
+  ])));
+  assert.deepEqual(output.data, { id: VERSION, content_hash: "hash", payload_file: file });
+  assert.equal(await readFile(file, "utf8"), `${JSON.stringify(payload, null, 2)}\n`);
+  assert.deepEqual(await readTaskGraphVersion(file), payload);
+});
+
+test("an unbound directory falls back to the only organization membership without binding it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "wayline-single-membership-test-"));
+  const repository = join(root, "repo");
+  await mkdir(join(repository, ".git"), { recursive: true });
+  const bindings = new OrganizationBindingStore(join(root, "home"));
+  let memberships = [{ id: ORGANIZATION }];
+  const requests: ToolRequest[] = [];
+  const runtime = fakeRuntime(async (request) => {
+    requests.push(request);
+    if (request.path === "/hub/api/v1/organizations") return { data: { items: memberships, next_cursor: null }, requestId: "list-id" };
+    return { data: { id: REQUEST }, requestId: "server-id" };
+  }, bindings);
+  const previous = process.cwd();
+  process.chdir(repository);
+  try {
+    const output = JSON.parse(await captureStdout(() => createProgram(runtime).parseAsync([
+      "node", "wayline-cli", "delivery-request", "context", "--delivery-request-id", REQUEST,
+    ])));
+    assert.equal(requests[0].query?.get("limit"), "2");
+    assert.equal(requests[1].query?.get("organization_id"), ORGANIZATION);
+    assert.deepEqual(output.meta, {
+      request_id: "server-id", warnings: [], organization_id: ORGANIZATION, organization_source: "single_membership",
+    });
+    await assert.rejects(() => bindings.get("https://back.wayline.studio", repository), /no organization binding/);
+
+    memberships = [{ id: ORGANIZATION }, { id: REQUEST }];
+    await assert.rejects(
+      () => createProgram(runtime).parseAsync([
+        "node", "wayline-cli", "delivery-request", "context", "--delivery-request-id", REQUEST,
+      ]),
+      /does not belong to exactly one/,
+    );
+  } finally {
+    process.chdir(previous);
+  }
+});
+
+function shortcutGraph() {
+  const task = (ref: string) => ({
+    ref, type: "task", attributes: { title: ref, description: "D", estimated_minutes: 60, estimate_source: "ai" },
+  });
+  return {
+    schema_version: "task-graph-version/v1",
+    graph: {
+      nodes: [task("n_STAGE001"), task("n_STAGE002"), { ref: "n_SUMMARY1", type: "summary", attributes: { title: "Goal" } }],
+      edges: [
+        { ref: "e_STAGE001", source: "n_STAGE001", target: "n_STAGE002" },
+        { ref: "e_STAGE002", source: "n_STAGE002", target: "n_SUMMARY1" },
+        { ref: "e_SHORTCUT", source: "n_STAGE001", target: "n_SUMMARY1" },
+      ],
+    },
+  };
+}
+
 function fakeRuntime(
-  callTool: (request: ToolRequest) => Promise<{ data: unknown; requestId: string }> = async () => ({ data: {}, requestId: "id" }),
+  callTool:(request: ToolRequest) => Promise<{ data: unknown; requestId: string }> = async () => ({ data: {}, requestId: "id" }),
   bindings: OrganizationBindingStore = new OrganizationBindingStore(join(tmpdir(), "wayline-cli-test-no-bindings")),
 ) {
   return {

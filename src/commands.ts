@@ -1,5 +1,7 @@
+import { writeFile } from "node:fs/promises";
 import { Command } from "commander";
 import { buildInfo } from "./build.js";
+import { checkTaskGraph } from "./graph-check.js";
 import { UserAuth, defaultDeviceName } from "./auth.js";
 import { HttpClient, ToolRequest } from "./http.js";
 import { OrganizationBindingNotFoundError, OrganizationBindingStore, projectScope } from "./organization-binding.js";
@@ -24,7 +26,7 @@ export const USER_TOOLS = [
   "task-group list", "task-group create", "task-group rename", "task-group delete",
   "delivery-request list", "delivery-request get", "delivery-request context",
   "delivery-request create", "delivery-request update-content", "delivery-request move",
-  "version list", "version get", "version diff", "version submit",
+  "version list", "version get", "version diff", "version check", "version submit",
   "change list", "change get", "change submit", "change approve",
   "change request-changes", "change replace-candidate", "change withdraw",
   "task-graph get", "task-execution get",
@@ -255,10 +257,18 @@ function registerVersion(program: Command, runtime: Runtime): void {
     })));
   requestScope(group.command("get").description("Get one version"))
     .option("--version-id <uuid>", "Version UUID (required)")
-    .action(toolAction(runtime, async (options, invocation) => invocation.call({
-      method: "GET", path: `${requestPath(options)}/versions/${segment(requiredUUID("version-id", options.versionId))}`,
-      query: organizationQuery(options),
-    })));
+    .option("--output <file>", "Write version_payload to this file as editable task-graph-version/v1 JSON and omit it from stdout")
+    .action(toolAction(runtime, async (options, invocation) => {
+      const output = options.output == null ? undefined : required("output", options.output);
+      await invocation.call({
+        method: "GET", path: `${requestPath(options)}/versions/${segment(requiredUUID("version-id", options.versionId))}`,
+        query: organizationQuery(options),
+      }, output === undefined ? undefined : async (data) => {
+        const { version_payload: payload, ...version } = data as Record<string, unknown>;
+        await writeFile(output, `${JSON.stringify(payload, null, 2)}\n`);
+        return { ...version, payload_file: output };
+      });
+    }));
   requestScope(group.command("diff").description("Compare two versions"))
     .option("--before-version-id <uuid>", "Baseline version UUID (required)")
     .option("--after-version-id <uuid>", "Target version UUID (required)")
@@ -270,15 +280,24 @@ function registerVersion(program: Command, runtime: Runtime): void {
         after: requiredUUID("after-version-id", options.afterVersionId),
       })),
     })));
+  group.command("check").description("Check a task-graph-version/v1 file locally against the publication and edge authoring rules")
+    .option("--input <file|->", "task-graph-version/v1 JSON file, or - for stdin (max 16 MiB) (required)")
+    .action(toolAction(runtime, async (options, invocation) => {
+      invocation.localSuccess(checkTaskGraph(await readTaskGraphVersion(options.input)));
+    }));
   requestScope(group.command("submit").description("Submit a complete task-graph-version/v1 snapshot without an edit lease"))
     .option("--expected-current-version-id <uuid>", "Current version UUID observed before offline work (required)")
     .option("--input <file|->", "task-graph-version/v1 JSON file, or - for stdin (max 16 MiB) (required)")
     .option("--name <text>", "Optional version name")
     .option("--description <text>", "Optional version description")
     .action(toolAction(runtime, async (options, invocation) => {
+      const payload = await readTaskGraphVersion(options.input);
+      const check = checkTaskGraph(payload);
+      for (const finding of check.errors) invocation.warnings.push(`${finding.code} (blocks approval): ${finding.message}`);
+      for (const finding of check.warnings) invocation.warnings.push(`${finding.code}: ${finding.message}`);
       const body: Record<string, unknown> = {
         expected_current_version_id: requiredUUID("expected-current-version-id", options.expectedCurrentVersionId),
-        source: { type: "payload", payload: await readTaskGraphVersion(options.input) },
+        source: { type: "payload", payload },
       };
       if (options.name != null) body.name = options.name;
       if (options.description != null) body.description = options.description;
@@ -397,7 +416,7 @@ function toolAction(
   return async (options, command) => {
     const invocation = new ToolInvocation(runtime.client, runtime.auth);
     if (command.options.some((option) => option.attributeName() === "organizationId")) {
-      const scope = await resolveOrganization(runtime, options);
+      const scope = await resolveOrganization(runtime, options, invocation);
       options.organizationId = scope.organization_id;
       invocation.organization = scope;
     }
@@ -405,7 +424,7 @@ function toolAction(
   };
 }
 
-async function resolveOrganization(runtime: Runtime, options: Options): Promise<OrganizationScope> {
+async function resolveOrganization(runtime: Runtime, options: Options, invocation: ToolInvocation): Promise<OrganizationScope> {
   if (options.organizationId != null) {
     return { organization_id: requiredUUID("organization-id", options.organizationId), organization_source: "flag" };
   }
@@ -415,8 +434,14 @@ async function resolveOrganization(runtime: Runtime, options: Options): Promise<
     return { organization_id: binding.organization_id, organization_source: "binding" };
   } catch (error) {
     if (!(error instanceof OrganizationBindingNotFoundError)) throw error;
-    throw new Error(`no organization is bound to ${scope}; pass --organization-id <uuid> or run "wayline-cli organization use --organization-id <uuid>" after choosing one with "wayline-cli organization list"`);
   }
+  // Without a flag or binding, an only membership is unambiguous; it is used but never bound.
+  const page = await invocation.fetch({
+    method: "GET", path: `${PREFIX}/organizations`, query: new URLSearchParams({ limit: "2" }),
+  }) as { items?: { id?: unknown }[]; next_cursor?: unknown };
+  const only = Array.isArray(page?.items) && page.items.length === 1 && !page.next_cursor ? page.items[0]?.id : undefined;
+  if (typeof only === "string" && only) return { organization_id: only, organization_source: "single_membership" };
+  throw new Error(`no organization is bound to ${scope} and the Hub User does not belong to exactly one; pass --organization-id <uuid> or run "wayline-cli organization use --organization-id <uuid>" after choosing one with "wayline-cli organization list"`);
 }
 
 function callRequest(suffix: string): (options: Options, invocation: ToolInvocation) => Promise<void> {

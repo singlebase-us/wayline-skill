@@ -17,4 +17,13 @@ These files are byte-identical release mirrors of the backend protocol source. T
 
 JSON Schema is not sufficient by itself. A candidate entering approval or publication must also have unique refs, valid edge endpoints, no self-loop or duplicate endpoint pair, no cycle, exactly one summary sink unless the graph is the initial empty graph, and a path from every task to that summary. Task title and description cannot be whitespace-only. `estimated_minutes` and `estimate_source` must both be null or both be non-null.
 
+## Edge authoring rules
+
+The path rule is about reachability, not direct edges. Hub accepts the rules below without enforcing them, so check them before submitting. The CLI `version check` command reports violations of rules 2 and 3 as `redundant_edge` warnings, and `version submit` repeats them in `meta.warnings`:
+
+1. An edge states direct precedence only: the target cannot start until the source is done.
+2. Link a task to the summary only when no other task depends on it. A task that already reaches the summary through a dependent task must not also carry a direct summary edge.
+3. Omit any edge `A -> C` when `A` already reaches `C` through another path.
+4. Do not create a summary edge per task as scaffolding. Model real dependencies first, then link only the remaining terminal tasks to the summary. A task linked only to the summary must genuinely have no dependent task; when its peers converge on a closing task such as final regression, route it there too.
+
 Published protocol versions are immutable. Add a new schema version for semantic changes and migrate readers before writers.
