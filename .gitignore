@@ -5,3 +5,4 @@ dist/
 .env
 skills-lock.json
 .agents/
+xerj_data/
