@@ -1,6 +1,6 @@
 {
   "name": "wayline-cli",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Wayline Agent CLI and skills for Hub Users",
   "type": "module",
   "bin": {
@@ -21,7 +21,8 @@
     "prepublishOnly": "npm run check"
   },
   "dependencies": {
-    "commander": "^12.1.0"
+    "commander": "^12.1.0",
+    "wayline-cli": "^0.1.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
