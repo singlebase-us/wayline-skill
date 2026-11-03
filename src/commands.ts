@@ -181,21 +181,19 @@ function registerTaskGroup(program: Command, runtime: Runtime): void {
     .action(toolAction(runtime, async (options, invocation) => invocation.call({
       method: "POST", path: taskGroupPath(options), body: { name: required("name", options.name).trim() },
     })));
-  requestOrganization(group.command("rename").description("Rename a task group"))
+  group.command("rename").description("Rename a task group")
     .option("--task-group-id <uuid>", "Task group UUID (required)")
     .option("--name <text>", "New task group name (required)")
     .action(toolAction(runtime, async (options, invocation) => invocation.call({
       method: "PATCH",
       path: `${PREFIX}/task-groups/${segment(requiredUUID("task-group-id", options.taskGroupId))}`,
-      query: organizationQuery(options),
       body: { name: required("name", options.name).trim() },
     })));
-  requestOrganization(group.command("delete").description("Delete a task group"))
+  group.command("delete").description("Delete a task group")
     .option("--task-group-id <uuid>", "Task group UUID (required)")
     .action(toolAction(runtime, async (options, invocation) => invocation.call({
       method: "DELETE",
       path: `${PREFIX}/task-groups/${segment(requiredUUID("task-group-id", options.taskGroupId))}`,
-      query: organizationQuery(options),
     })));
 }
 
@@ -239,14 +237,13 @@ function registerDeliveryRequest(program: Command, runtime: Runtime): void {
       };
       if (options.title != null) body.title = required("title", options.title).trim();
       if (options.description != null) body.description = options.description;
-      await invocation.call({ method: "PATCH", path: `${requestPath(options)}/content`, query: organizationQuery(options), body });
+      await invocation.call({ method: "PATCH", path: `${requestPath(options)}/content`, body });
     }));
   requestScope(group.command("move").description("Move a delivery request to another task group"))
     .option("--task-group-id <uuid>", "Target task group UUID (required)")
     .action(toolAction(runtime, async (options, invocation) => invocation.call({
       method: "PUT",
       path: `${requestPath(options)}/task-group`,
-      query: organizationQuery(options),
       body: { task_group_id: requiredUUID("task-group-id", options.taskGroupId) },
     })));
 }
@@ -256,7 +253,7 @@ function registerVersion(program: Command, runtime: Runtime): void {
     .action(() => { process.stdout.write(`wayline-cli ${buildInfo.version}\n`); });
   withPage(requestScope(group.command("list").description("List versions")))
     .action(toolAction(runtime, async (options, invocation) => invocation.call({
-      method: "GET", path: `${requestPath(options)}/versions`, query: organizationQuery(options, pageQuery(options)),
+      method: "GET", path: `${requestPath(options)}/versions`, query: pageQuery(options),
     })));
   requestScope(group.command("get").description("Get one version"))
     .option("--version-id <uuid>", "Version UUID (required)")
@@ -265,7 +262,6 @@ function registerVersion(program: Command, runtime: Runtime): void {
       const output = options.output == null ? undefined : required("output", options.output);
       await invocation.call({
         method: "GET", path: `${requestPath(options)}/versions/${segment(requiredUUID("version-id", options.versionId))}`,
-        query: organizationQuery(options),
       }, output === undefined ? undefined : async (data) => {
         const { version_payload: payload, ...version } = data as Record<string, unknown>;
         await writeFile(output, `${JSON.stringify(payload, null, 2)}\n`);
@@ -278,10 +274,10 @@ function registerVersion(program: Command, runtime: Runtime): void {
     .action(toolAction(runtime, async (options, invocation) => invocation.call({
       method: "GET",
       path: `${requestPath(options)}/version-diff`,
-      query: organizationQuery(options, new URLSearchParams({
+      query: new URLSearchParams({
         before: requiredUUID("before-version-id", options.beforeVersionId),
         after: requiredUUID("after-version-id", options.afterVersionId),
-      })),
+      }),
     })));
   group.command("check").description("Check a task-graph-version/v1 file locally against the publication and edge authoring rules")
     .option("--input <file|->", "task-graph-version/v1 JSON file, or - for stdin (max 16 MiB) (required)")
@@ -305,8 +301,7 @@ function registerVersion(program: Command, runtime: Runtime): void {
       if (options.name != null) body.name = options.name;
       if (options.description != null) body.description = options.description;
       await invocation.call({
-        method: "POST", path: `${requestPath(options)}/version-submissions`,
-        query: organizationQuery(options), body,
+        method: "POST", path: `${requestPath(options)}/version-submissions`, body,
       });
     }));
 }
@@ -315,19 +310,18 @@ function registerChange(program: Command, runtime: Runtime): void {
   const group = program.command("change").description("Submit and operate the two-party approval workflow");
   withPage(requestScope(group.command("list").description("List approval changes")))
     .action(toolAction(runtime, async (options, invocation) => invocation.call({
-      method: "GET", path: `${requestPath(options)}/changes`, query: organizationQuery(options, pageQuery(options)),
+      method: "GET", path: `${requestPath(options)}/changes`, query: pageQuery(options),
     })));
   requestScope(group.command("get").description("Get one approval change"))
     .option("--change-id <uuid>", "Change UUID (required)")
     .action(toolAction(runtime, async (options, invocation) => invocation.call({
       method: "GET", path: `${requestPath(options)}/changes/${segment(requiredUUID("change-id", options.changeId))}`,
-      query: organizationQuery(options),
     })));
   requestScope(group.command("submit").description("Submit an existing version as an approval candidate"))
     .option("--candidate-version-id <uuid>", "Candidate version UUID (required)")
     .option("--expected-published-version-id <uuid>", "Published version UUID observed before submission (required)")
     .action(toolAction(runtime, async (options, invocation) => invocation.call({
-      method: "POST", path: `${requestPath(options)}/changes`, query: organizationQuery(options), body: {
+      method: "POST", path: `${requestPath(options)}/changes`, body: {
         candidate_version_id: requiredUUID("candidate-version-id", options.candidateVersionId),
         expected_published_version_id: requiredUUID("expected-published-version-id", options.expectedPublishedVersionId),
       },
@@ -361,7 +355,6 @@ function changeCommand(
   command.action(toolAction(runtime, async (options, invocation) => invocation.call({
     method: "POST",
     path: `${requestPath(options)}/changes/${segment(requiredUUID("change-id", options.changeId))}/commands`,
-    query: organizationQuery(options),
     body: { expected_lock_version: nonNegativeInteger("expected-lock-version", options.expectedLockVersion), ...body(options) },
   })));
 }
@@ -370,7 +363,7 @@ function registerRequestRead(program: Command, runtime: Runtime, resource: strin
   const group = program.command(resource).description(description);
   requestScope(group.command("get").description(description))
     .action(toolAction(runtime, async (options, invocation) => invocation.call({
-      method: "GET", path: `${requestPath(options)}/${resource}`, query: organizationQuery(options),
+      method: "GET", path: `${requestPath(options)}/${resource}`,
     })));
 }
 
@@ -383,7 +376,7 @@ function registerTaskExecution(program: Command, runtime: Runtime): void {
       const versionID = optionalUUID("version-id", options.versionId);
       if (versionID) query.set("version_id", versionID);
       await invocation.call({
-        method: "GET", path: `${requestPath(options)}/task-execution`, query: organizationQuery(options, query),
+        method: "GET", path: `${requestPath(options)}/task-execution`, query: query,
       });
     }));
 }
@@ -408,7 +401,7 @@ function registerNodeComment(program: Command, runtime: Runtime): void {
     .action(toolAction(runtime, async (options, invocation) => invocation.call({
       method: "GET",
       path: `${requestPath(options)}/task-graph/nodes/${segment(requiredNodeRef(options.nodeRef))}/comments`,
-      query: organizationQuery(options, pageQuery(options)),
+      query: pageQuery(options),
     })));
 }
 
@@ -433,7 +426,7 @@ function registerServicePoint(program: Command, runtime: Runtime): void {
     .action(toolAction(runtime, async (options, invocation) => {
       const node = options.nodeRef == null ? "" : `/task-graph/nodes/${segment(requiredNodeRef(options.nodeRef))}`;
       await invocation.call({
-        method: "GET", path: `${requestPath(options)}${node}/deductions`, query: organizationQuery(options, pageQuery(options)),
+        method: "GET", path: `${requestPath(options)}${node}/deductions`, query: pageQuery(options),
       });
     }));
 }
@@ -474,7 +467,7 @@ async function resolveOrganization(runtime: Runtime, options: Options, invocatio
 }
 
 function callRequest(suffix: string): (options: Options, invocation: ToolInvocation) => Promise<void> {
-  return async (options, invocation) => invocation.call({ method: "GET", path: requestPath(options) + suffix, query: organizationQuery(options) });
+  return async (options, invocation) => invocation.call({ method: "GET", path: requestPath(options) + suffix });
 }
 
 function withPage(command: Command): Command {
@@ -486,8 +479,9 @@ function requestOrganization(command: Command): Command {
   return command.option("--organization-id <uuid>", "Organization UUID (default: the organization bound to this directory)");
 }
 
+/** Delivery requests are located by UUID alone; the request determines its organization. */
 function requestScope(command: Command): Command {
-  return requestOrganization(command).option("--delivery-request-id <uuid>", "Delivery request UUID (required)");
+  return command.option("--delivery-request-id <uuid>", "Delivery request UUID (required)");
 }
 
 function requestCollectionPath(options: Options): string {
@@ -504,11 +498,6 @@ function taskGroupPath(options: Options): string {
 
 function organizationPath(options: Options): string {
   return `${PREFIX}/organizations/${segment(String(options.organizationId))}`;
-}
-
-function organizationQuery(options: Options, query = new URLSearchParams()): URLSearchParams {
-  query.set("organization_id", String(options.organizationId));
-  return query;
 }
 
 function segment(value: string): string {

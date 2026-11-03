@@ -121,21 +121,15 @@ wayline-cli organization unset
 wayline-cli delivery-request list \
   --organization-id <organization-id>
 
-# Read the complete analysis context for a Delivery Request
-wayline-cli delivery-request context \
-  --organization-id <organization-id> \
-  --delivery-request-id <delivery-request-id>
+# Read the complete analysis context for a Delivery Request (located by its UUID alone)
+wayline-cli delivery-request context --delivery-request-id <delivery-request-id>
 
 # Read current execution progress
-wayline-cli task-execution get \
-  --organization-id <organization-id> \
-  --delivery-request-id <delivery-request-id>
+wayline-cli task-execution get --delivery-request-id <delivery-request-id>
 
 # Read the service point balance (1 point = 1 minute) and per-task deductions
 wayline-cli service-point account --organization-id <organization-id>
-wayline-cli service-point usage \
-  --organization-id <organization-id> \
-  --delivery-request-id <delivery-request-id>
+wayline-cli service-point usage --delivery-request-id <delivery-request-id>
 ```
 
 Use nested help to see the current options for any command:
@@ -180,7 +174,7 @@ Successful API operations and API-level failures use the `wayline-cli-result/v1`
 }
 ```
 
-Business commands resolve the organization in this order: an explicit `--organization-id`, then the binding stored for the current project directory, then the user's only organization when they belong to exactly one (used without being bound), then a human-readable error that tells you to pick one. `organization_source` is `flag`, `binding`, or `single_membership`, so the organization actually used is always visible in the result. A binding is keyed by the Git project root and by the API base URL, and is stored under `~/.wayline/organizations/`.
+Commands that act on an existing resource take only its UUID (`--delivery-request-id`, `--task-group-id`); the resource determines its organization, so they never take `--organization-id`. Commands that list or create inside an organization resolve it in this order: an explicit `--organization-id`, then the binding stored for the current project directory, then the user's only organization when they belong to exactly one (used without being bound), then a human-readable error that tells you to pick one. `organization_source` is `flag`, `binding`, or `single_membership`, so the organization actually used is always visible in the result. A binding is keyed by the Git project root and by the API base URL, and is stored under `~/.wayline/organizations/`.
 
 Errors caught locally, such as a missing or invalid command option, are printed as human-readable text to stderr.
 

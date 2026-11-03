@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import type { Command } from "commander";
 import { UserAuth } from "../src/auth.js";
 import { createProgram, USER_TOOLS } from "../src/commands.js";
 import { CredentialStore } from "../src/credentials.js";
@@ -79,22 +80,34 @@ test("all advertised tools have registered commands", () => {
   }
 });
 
-test("delivery request context maps to the organization-bounded User API", async () => {
-  let captured: ToolRequest | undefined;
-  const runtime = fakeRuntime(async (request) => { captured = request; return { data: { id: REQUEST }, requestId: "server-id" }; });
+test("request-scoped commands locate the delivery request by UUID alone", async () => {
+  const requests: ToolRequest[] = [];
+  const runtime = fakeRuntime(async (request) => { requests.push(request); return { data: { id: REQUEST }, requestId: "server-id" }; });
   const output = await captureStdout(() => createProgram(runtime).parseAsync([
-    "node", "wayline-cli", "delivery-request", "context",
-    "--organization-id", ORGANIZATION, "--delivery-request-id", REQUEST,
+    "node", "wayline-cli", "delivery-request", "context", "--delivery-request-id", REQUEST,
   ]));
-  assert.equal(captured?.method, "GET");
-  assert.equal(captured?.path, `/hub/api/v1/delivery-requests/${REQUEST}/context`);
-  assert.equal(captured?.query?.get("organization_id"), ORGANIZATION);
+  // No organization lookup, binding, or organization_id: the request determines its organization.
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].method, "GET");
+  assert.equal(requests[0].path, `/hub/api/v1/delivery-requests/${REQUEST}/context`);
+  assert.equal(requests[0].query?.get("organization_id") ?? null, null);
   assert.deepEqual(JSON.parse(output), {
     schema: "wayline-cli-result/v1", ok: true, data: { id: REQUEST },
-    meta: {
-      request_id: "server-id", warnings: [], organization_id: ORGANIZATION, organization_source: "flag",
-    },
+    meta: { request_id: "server-id", warnings: [] },
   });
+
+  const program = createProgram(runtime);
+  program.commands.forEach(function quiet(command: Command): void {
+    command.exitOverride().configureOutput({ writeErr: () => undefined, writeOut: () => undefined });
+    command.commands.forEach(quiet);
+  });
+  await assert.rejects(
+    () => program.parseAsync([
+      "node", "wayline-cli", "delivery-request", "get",
+      "--organization-id", ORGANIZATION, "--delivery-request-id", REQUEST,
+    ]),
+    /unknown option '--organization-id'/,
+  );
 });
 
 test("task execution reads project the current version unless a version is named", async () => {
@@ -104,17 +117,14 @@ test("task execution reads project the current version unless a version is named
     return { data: { nodes: [] }, requestId: "server-id" };
   });
   await captureStdout(() => createProgram(runtime).parseAsync([
-    "node", "wayline-cli", "task-execution", "get",
-    "--organization-id", ORGANIZATION, "--delivery-request-id", REQUEST,
+    "node", "wayline-cli", "task-execution", "get", "--delivery-request-id", REQUEST,
   ]));
   await captureStdout(() => createProgram(runtime).parseAsync([
-    "node", "wayline-cli", "task-execution", "get",
-    "--organization-id", ORGANIZATION, "--delivery-request-id", REQUEST,
+    "node", "wayline-cli", "task-execution", "get", "--delivery-request-id", REQUEST,
     "--version-id", VERSION,
   ]));
   assert.equal(requests[0].path, `/hub/api/v1/delivery-requests/${REQUEST}/task-execution`);
   assert.equal(requests[0].query?.get("version_id"), null);
-  assert.equal(requests[0].query?.get("organization_id"), ORGANIZATION);
   assert.equal(requests[1].query?.get("version_id"), VERSION);
 });
 
@@ -125,10 +135,10 @@ test("service point reads map to the read-only User API", async () => {
     return { data: {}, requestId: "server-id" };
   });
   const run = (...args: string[]) => captureStdout(() => createProgram(runtime).parseAsync([
-    "node", "wayline-cli", "service-point", ...args, "--organization-id", ORGANIZATION,
+    "node", "wayline-cli", "service-point", ...args,
   ]));
-  await run("account");
-  await run("entries", "--kind", "grant", "--limit", "5");
+  await run("account", "--organization-id", ORGANIZATION);
+  await run("entries", "--organization-id", ORGANIZATION, "--kind", "grant", "--limit", "5");
   await run("usage", "--delivery-request-id", REQUEST);
   await run("deductions", "--delivery-request-id", REQUEST);
   await run("deductions", "--delivery-request-id", REQUEST, "--node-ref", "n_TASK001");
@@ -141,7 +151,7 @@ test("service point reads map to the read-only User API", async () => {
   assert.equal(requests[2].path, `/hub/api/v1/delivery-requests/${REQUEST}/service-point-usage`);
   assert.equal(requests[3].path, `/hub/api/v1/delivery-requests/${REQUEST}/deductions`);
   assert.equal(requests[4].path, `/hub/api/v1/delivery-requests/${REQUEST}/task-graph/nodes/n_TASK001/deductions`);
-  for (const request of requests.slice(2)) assert.equal(request.query?.get("organization_id"), ORGANIZATION);
+  for (const request of requests.slice(2)) assert.equal(request.query?.get("organization_id") ?? null, null);
 });
 
 test("service point entries reject unknown kinds before calling the Hub", async () => {
@@ -156,7 +166,7 @@ test("service point entries reject unknown kinds before calling the Hub", async 
   assert.equal(called, false);
 });
 
-test("delivery request content updates use the User API with an organization boundary", async () => {
+test("delivery request content updates use the User API by UUID", async () => {
   let captured: ToolRequest | undefined;
   const runtime = fakeRuntime(async (request) => {
     captured = request;
@@ -169,8 +179,6 @@ test("delivery request content updates use the User API with an organization bou
       "wayline-cli",
       "delivery-request",
       "update-content",
-      "--organization-id",
-      ORGANIZATION,
       "--delivery-request-id",
       REQUEST,
       "--expected-lock-version",
@@ -187,7 +195,7 @@ test("delivery request content updates use the User API with an organization bou
     captured?.path,
     `/hub/api/v1/delivery-requests/${REQUEST}/content`,
   );
-  assert.equal(captured?.query?.get("organization_id"), ORGANIZATION);
+  assert.equal(captured?.query?.get("organization_id") ?? null, null);
   assert.deepEqual(captured?.body, {
     expected_lock_version: 7,
     title: "Renamed request",
@@ -208,13 +216,11 @@ test("offline version submission uses expected-current CAS without an idempotenc
   });
   await captureStdout(() => createProgram(runtime).parseAsync([
     "node", "wayline-cli", "version", "submit",
-    "--organization-id", ORGANIZATION,
     "--delivery-request-id", REQUEST,
     "--expected-current-version-id", REQUEST,
     "--input", input,
   ]));
   assert.equal(captured?.path, `/hub/api/v1/delivery-requests/${REQUEST}/version-submissions`);
-  assert.equal(captured?.query?.get("organization_id"), ORGANIZATION);
   assert.equal(captured?.headers?.["Idempotency-Key"], undefined);
   assert.deepEqual(captured?.body, {
     expected_current_version_id: REQUEST,
@@ -272,9 +278,9 @@ test("a directory binding supplies the organization and the meta reports its sou
     assert.match(bound, new RegExp(ORGANIZATION));
 
     const output = await captureStdout(() => createProgram(runtime).parseAsync([
-      "node", "wayline-cli", "delivery-request", "context", "--delivery-request-id", REQUEST,
+      "node", "wayline-cli", "task-group", "list",
     ]));
-    assert.equal(requests[0].query?.get("organization_id"), ORGANIZATION);
+    assert.equal(requests[0].path, `/hub/api/v1/organizations/${ORGANIZATION}/task-groups`);
     assert.deepEqual(JSON.parse(output).meta, {
       request_id: "server-id", warnings: [], organization_id: ORGANIZATION, organization_source: "binding",
     });
@@ -283,16 +289,15 @@ test("a directory binding supplies the organization and the meta reports its sou
     assert.match(current, new RegExp(ORGANIZATION));
 
     const overridden = await captureStdout(() => createProgram(runtime).parseAsync([
-      "node", "wayline-cli", "delivery-request", "get",
-      "--organization-id", REQUEST, "--delivery-request-id", REQUEST,
+      "node", "wayline-cli", "task-group", "list", "--organization-id", REQUEST,
     ]));
-    assert.equal(requests[1].query?.get("organization_id"), REQUEST);
+    assert.equal(requests[1].path, `/hub/api/v1/organizations/${REQUEST}/task-groups`);
     assert.equal(JSON.parse(overridden).meta.organization_source, "flag");
 
     await captureStdout(() => createProgram(runtime).parseAsync(["node", "wayline-cli", "organization", "unset"]));
     await assert.rejects(
       () => createProgram(runtime).parseAsync([
-        "node", "wayline-cli", "delivery-request", "context", "--delivery-request-id", REQUEST,
+        "node", "wayline-cli", "task-group", "list",
       ]),
       /no organization is bound/,
     );
@@ -513,7 +518,7 @@ test("version submit echoes graph findings in meta warnings without blocking", a
   const runtime = fakeRuntime(async () => { submitted = true; return { data: { id: VERSION }, requestId: "server-id" }; });
   const output = JSON.parse(await captureStdout(() => createProgram(runtime).parseAsync([
     "node", "wayline-cli", "version", "submit",
-    "--organization-id", ORGANIZATION, "--delivery-request-id", REQUEST,
+    "--delivery-request-id", REQUEST,
     "--expected-current-version-id", VERSION, "--input", input,
   ])));
   assert.equal(submitted, true);
@@ -530,7 +535,7 @@ test("version get --output writes an editable payload file and keeps it out of s
   }));
   const output = JSON.parse(await captureStdout(() => createProgram(runtime).parseAsync([
     "node", "wayline-cli", "version", "get",
-    "--organization-id", ORGANIZATION, "--delivery-request-id", REQUEST,
+    "--delivery-request-id", REQUEST,
     "--version-id", VERSION, "--output", file,
   ])));
   assert.deepEqual(output.data, { id: VERSION, content_hash: "hash", payload_file: file });
@@ -554,10 +559,10 @@ test("an unbound directory falls back to the only organization membership withou
   process.chdir(repository);
   try {
     const output = JSON.parse(await captureStdout(() => createProgram(runtime).parseAsync([
-      "node", "wayline-cli", "delivery-request", "context", "--delivery-request-id", REQUEST,
+      "node", "wayline-cli", "task-group", "list",
     ])));
     assert.equal(requests[0].query?.get("limit"), "2");
-    assert.equal(requests[1].query?.get("organization_id"), ORGANIZATION);
+    assert.equal(requests[1].path, `/hub/api/v1/organizations/${ORGANIZATION}/task-groups`);
     assert.deepEqual(output.meta, {
       request_id: "server-id", warnings: [], organization_id: ORGANIZATION, organization_source: "single_membership",
     });
@@ -566,7 +571,7 @@ test("an unbound directory falls back to the only organization membership withou
     memberships = [{ id: ORGANIZATION }, { id: REQUEST }];
     await assert.rejects(
       () => createProgram(runtime).parseAsync([
-        "node", "wayline-cli", "delivery-request", "context", "--delivery-request-id", REQUEST,
+        "node", "wayline-cli", "task-group", "list",
       ]),
       /does not belong to exactly one/,
     );
