@@ -8,6 +8,7 @@ const MAX_INPUT_BYTES = 16 << 20;
 
 export const deliveryRequestStatuses = ["planning", "developing", "completed"] as const;
 export const organizationStatuses = ["active", "suspended", "archived"] as const;
+export const servicePointEntryKinds = ["grant", "adjustment", "task_deduction"] as const;
 
 export function required(name: string, value: unknown): string {
   if (typeof value !== "string" || !value.trim()) throw new Error(`--${name} is required`);

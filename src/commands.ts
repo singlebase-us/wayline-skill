@@ -8,6 +8,7 @@ import { OrganizationBindingNotFoundError, OrganizationBindingStore, projectScop
 import { OrganizationScope, TASK_GRAPH_VERSION_SCHEMA, ToolInvocation } from "./tool.js";
 import {
   deliveryRequestStatuses,
+  servicePointEntryKinds,
   enumValue,
   nonNegativeInteger,
   optionalUUID,
@@ -32,6 +33,7 @@ export const USER_TOOLS = [
   "task-graph get", "task-execution get",
   "developer-profile list", "developer-profile get",
   "node-comment list",
+  "service-point account", "service-point entries", "service-point usage", "service-point deductions",
 ] as const;
 
 type Options = Record<string, unknown>;
@@ -73,6 +75,7 @@ export function createProgram(runtime: Runtime): Command {
   registerTaskExecution(program, runtime);
   registerDeveloperProfile(program, runtime);
   registerNodeComment(program, runtime);
+  registerServicePoint(program, runtime);
   return program;
 }
 
@@ -409,6 +412,32 @@ function registerNodeComment(program: Command, runtime: Runtime): void {
     })));
 }
 
+function registerServicePoint(program: Command, runtime: Runtime): void {
+  const group = program.command("service-point")
+    .description("Read the organization's service point balance, ledger, and task deductions (1 point = 1 minute; read-only)");
+  requestOrganization(group.command("account").description("Read the organization's service point balance"))
+    .action(toolAction(runtime, async (options, invocation) => invocation.call({
+      method: "GET", path: `${organizationPath(options)}/service-point-account`,
+    })));
+  withPage(requestOrganization(group.command("entries").description("List the organization's service point ledger, newest first")))
+    .option("--kind <kind>", "Filter: grant / adjustment / task_deduction")
+    .action(toolAction(runtime, async (options, invocation) => {
+      const query = pageQuery(options);
+      if (options.kind != null) query.set("kind", enumValue("kind", options.kind, servicePointEntryKinds));
+      await invocation.call({ method: "GET", path: `${organizationPath(options)}/service-point-entries`, query });
+    }));
+  requestScope(group.command("usage").description("Read each published task's estimate, deducted minutes, and remaining minutes"))
+    .action(toolAction(runtime, callRequest("/service-point-usage")));
+  withPage(requestScope(group.command("deductions").description("List task deductions of a delivery request, newest first")))
+    .option("--node-ref <ref>", "Only this task node, including nodes removed from the published graph")
+    .action(toolAction(runtime, async (options, invocation) => {
+      const node = options.nodeRef == null ? "" : `/task-graph/nodes/${segment(requiredNodeRef(options.nodeRef))}`;
+      await invocation.call({
+        method: "GET", path: `${requestPath(options)}${node}/deductions`, query: organizationQuery(options, pageQuery(options)),
+      });
+    }));
+}
+
 function toolAction(
   runtime: Runtime,
   action: (options: Options, invocation: ToolInvocation) => Promise<void>,
@@ -470,7 +499,11 @@ function requestPath(options: Options): string {
 }
 
 function taskGroupPath(options: Options): string {
-  return `${PREFIX}/organizations/${segment(String(options.organizationId))}/task-groups`;
+  return `${organizationPath(options)}/task-groups`;
+}
+
+function organizationPath(options: Options): string {
+  return `${PREFIX}/organizations/${segment(String(options.organizationId))}`;
 }
 
 function organizationQuery(options: Options, query = new URLSearchParams()): URLSearchParams {

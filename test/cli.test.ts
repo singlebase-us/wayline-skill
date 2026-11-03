@@ -118,6 +118,44 @@ test("task execution reads project the current version unless a version is named
   assert.equal(requests[1].query?.get("version_id"), VERSION);
 });
 
+test("service point reads map to the read-only User API", async () => {
+  const requests: ToolRequest[] = [];
+  const runtime = fakeRuntime(async (request) => {
+    requests.push(request);
+    return { data: {}, requestId: "server-id" };
+  });
+  const run = (...args: string[]) => captureStdout(() => createProgram(runtime).parseAsync([
+    "node", "wayline-cli", "service-point", ...args, "--organization-id", ORGANIZATION,
+  ]));
+  await run("account");
+  await run("entries", "--kind", "grant", "--limit", "5");
+  await run("usage", "--delivery-request-id", REQUEST);
+  await run("deductions", "--delivery-request-id", REQUEST);
+  await run("deductions", "--delivery-request-id", REQUEST, "--node-ref", "n_TASK001");
+
+  assert.ok(requests.every((request) => request.method === "GET"));
+  assert.equal(requests[0].path, `/hub/api/v1/organizations/${ORGANIZATION}/service-point-account`);
+  assert.equal(requests[1].path, `/hub/api/v1/organizations/${ORGANIZATION}/service-point-entries`);
+  assert.equal(requests[1].query?.get("kind"), "grant");
+  assert.equal(requests[1].query?.get("limit"), "5");
+  assert.equal(requests[2].path, `/hub/api/v1/delivery-requests/${REQUEST}/service-point-usage`);
+  assert.equal(requests[3].path, `/hub/api/v1/delivery-requests/${REQUEST}/deductions`);
+  assert.equal(requests[4].path, `/hub/api/v1/delivery-requests/${REQUEST}/task-graph/nodes/n_TASK001/deductions`);
+  for (const request of requests.slice(2)) assert.equal(request.query?.get("organization_id"), ORGANIZATION);
+});
+
+test("service point entries reject unknown kinds before calling the Hub", async () => {
+  let called = false;
+  const runtime = fakeRuntime(async () => { called = true; return { data: {}, requestId: "id" }; });
+  await assert.rejects(
+    () => createProgram(runtime).parseAsync([
+      "node", "wayline-cli", "service-point", "entries", "--organization-id", ORGANIZATION, "--kind", "refund",
+    ]),
+    /--kind must be one of: grant, adjustment, task_deduction/,
+  );
+  assert.equal(called, false);
+});
+
 test("delivery request content updates use the User API with an organization boundary", async () => {
   let captured: ToolRequest | undefined;
   const runtime = fakeRuntime(async (request) => {

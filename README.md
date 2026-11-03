@@ -18,6 +18,7 @@ You can ask an agent to:
 - Build versioned Task Graphs with tasks, dependencies, and evidence-backed estimates.
 - Review version differences and operate the approval workflow.
 - Summarize implementation progress, ownership, schedules, blockers, and execution history.
+- Read the organization's remaining service time and what was deducted for each task.
 
 The package contains only the commands and workflows available to an authenticated Wayline Hub user.
 
@@ -28,7 +29,7 @@ The package contains only the commands and workflows available to an authenticat
 | [`wayline-workspace`](skills/wayline-workspace/SKILL.md) | Find organizations and Delivery Requests, organize task groups, and update request content. |
 | [`wayline-estimate`](skills/wayline-estimate/SKILL.md) | Inspect a local codebase, estimate delivery effort, decompose work, and create Task Graph versions. |
 | [`wayline-review`](skills/wayline-review/SKILL.md) | Compare versions, review candidate plans, and operate the approval workflow. |
-| [`wayline-execution`](skills/wayline-execution/SKILL.md) | Read progress, assignments, schedules, blockers, and task comments without changing execution state. |
+| [`wayline-execution`](skills/wayline-execution/SKILL.md) | Read progress, assignments, schedules, blockers, task comments, and service point deductions without changing execution state. |
 
 ## Quick Start
 
@@ -90,6 +91,8 @@ Analyze this repository for delivery request <request-id>, break the work into t
 Review the latest candidate task graph for <request-id> and explain the important changes before I approve it.
 
 Summarize implementation progress for <request-id>, including owners, blockers, and overdue work.
+
+How many service hours does my organization have left, and what was charged for <request-id>?
 ```
 
 ## Typical Workflow
@@ -127,6 +130,12 @@ wayline-cli delivery-request context \
 wayline-cli task-execution get \
   --organization-id <organization-id> \
   --delivery-request-id <delivery-request-id>
+
+# Read the service point balance (1 point = 1 minute) and per-task deductions
+wayline-cli service-point account --organization-id <organization-id>
+wayline-cli service-point usage \
+  --organization-id <organization-id> \
+  --delivery-request-id <delivery-request-id>
 ```
 
 Use nested help to see the current options for any command:
@@ -151,6 +160,7 @@ wayline-cli change approve --help
 | `task-execution` | Read task execution state, projected onto the current version unless `--version-id` names another. |
 | `developer-profile` | Resolve Developer Profiles used for task ownership. |
 | `node-comment` | Read comments attached to published task nodes. |
+| `service-point` | Read the organization's service point balance, ledger, per-task usage, and deductions. Read-only; estimation never uses it. |
 
 ## Output
 
