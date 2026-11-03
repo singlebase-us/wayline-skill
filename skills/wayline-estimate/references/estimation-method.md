@@ -26,7 +26,7 @@ One wall-clock hour of a developer is at most one hour of effort, however many A
 
 Estimate AI-assisted attention directly. Do not estimate a traditional, unassisted baseline and then discount it, and do not apply published AI productivity multipliers or study results; they measure different tasks, populations, and units. Equally, do not fall back on traditional person-day intuition: AI mainly compresses implementation, leaves understanding, decisions, and external dependencies largely unchanged, and often increases review and verification.
 
-Estimate without reference to budget. Do not look up or ask for subscription hours, remaining capacity, or a target total while estimating. If the request or the user states a budget or target, set it aside until every task estimate is final, and never adjust an estimate to fit it.
+Estimate without reference to budget. Do not look up or ask for subscription hours, the Organization's service point balance, its ledger, deductions or service point usage, remaining capacity, or a target total while estimating, and do not run any `wayline-cli service-point` command. Service points are the customer's prepaid minutes, and a task's published estimate caps what may be deducted for it, so letting the balance shape an estimate is unfair either way: shrinking estimates to fit the balance understates the work, and padding them because the balance is large raises the deduction cap. If the request, the user, or any command output states a balance, budget, or target, set it aside until every task estimate is final, and never adjust an estimate, a task's scope or split, or the set of tasks to fit it.
 
 Use one team baseline across the graph. Developer Profiles can establish capability fit or expose a skill gap, but names, titles, seniority, and per-developer speed are never applied to graph estimates; the customer sees the same estimate whoever is assigned.
 
@@ -161,14 +161,14 @@ Before presenting the result:
    P80     = total effort + 0.84 × σ_total
    ```
 
-6. Only after every task estimate is final, relate the total to capacity when the user or the request context supplies it: weekly capacity hours, remaining hours in the current period, and the shares of those hours reserved for coordination (`o`: syncs, estimation, reporting) and interrupts (`u`). If any share is missing, state the value you assume and why. Never assume a default capacity; when none is supplied, skip this step and report total effort and P80 only.
+6. Only after every task estimate is final, relate the total to team capacity when the user or the request context supplies it: weekly capacity hours and the shares of those hours reserved for coordination (`o`: syncs, estimation, reporting) and interrupts (`u`). If any share is missing, state the value you assume and why. Never assume a default capacity; when none is supplied, skip this step and report total effort and P80 only. Team capacity is delivery throughput, not the Organization's service point balance: never read the balance for this step, and do not treat a balance the user mentions as capacity.
 
    ```
    C_week = weekly capacity hours × (1 - o - u)
    weeks  ≈ ceil(P80 / C_week)
    ```
 
-   Coordination and interrupts consume capacity but are not task effort; never add them to task estimates, and never revise an estimate because of this step. List external waits such as customer acceptance separately instead of converting them to effort. If P80 exceeds the remaining capacity of the current week or period, flag that the work will span weeks or may exceed the contracted hours, so the overrun terms can be raised before work starts.
+   Coordination and interrupts consume capacity but are not task effort; never add them to task estimates, and never revise an estimate because of this step. List external waits such as customer acceptance separately instead of converting them to effort. If P80 exceeds the supplied weekly capacity, flag that the work will span multiple weeks.
 7. Identify the largest estimate drivers and the assumptions that would trigger re-estimation.
 
 Re-estimate when scope changes, a hidden dependency appears, the assumed architecture is contradicted, verification reveals a different root cause, an estimate-driving assumption becomes false, or recorded effort on an unfinished task exceeds 1.2 × its graph estimate. Distinguish scope change from estimation error in the explanation, because contract terms may treat them differently. Preserve the original basis in the local conversation; do not present a changed estimate as though it had always been known.
@@ -186,6 +186,6 @@ Follow it with:
 - assumptions and unresolved questions;
 - main risk and re-estimation triggers;
 - relevant code locations or command results;
-- total effort and P80, plus, when capacity was supplied, the capacity inputs used, approximate weeks, and any overrun flag.
+- total effort and P80, plus, when capacity was supplied, the capacity inputs used, approximate weeks, and whether the work spans multiple weeks.
 
 The graph stores only the supported point value and `estimate_source: "ai"`. Do not put analysis transcripts, classes, confidence labels, ranges, calibration factors, risk registers, schedules, or evidence ledgers into task descriptions merely to preserve them. Submit only after the user asks to persist the proposed version.

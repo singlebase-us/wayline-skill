@@ -1,9 +1,9 @@
 ---
 name: wayline-execution
 description: >-
-  Read Wayline task execution state, progress, assignments, schedules, and Developer Profile-attributed node comments through wayline-cli. Use when the user wants to understand implementation progress, blockers, ownership, or execution history. This skill is read-only; planning belongs to wayline-estimate and execution mutations are Admin-only.
+  Read Wayline task execution state, progress, assignments, schedules, Developer Profile-attributed node comments, and the organization's service point balance and task deductions through wayline-cli. Use when the user wants to understand implementation progress, blockers, ownership, execution history, remaining service time, or what was charged for a task. This skill is read-only; planning belongs to wayline-estimate, and execution and service point mutations are Admin-only.
 metadata:
-  cliHelp: "wayline-cli task-graph --help && wayline-cli task-execution --help && wayline-cli node-comment --help && wayline-cli developer-profile --help"
+  cliHelp: "wayline-cli task-graph --help && wayline-cli task-execution --help && wayline-cli node-comment --help && wayline-cli developer-profile --help && wayline-cli service-point --help"
 ---
 
 Use the pre-installed `wayline-cli` for Wayline API operations. Do not call Hub endpoints directly or inspect files under `~/.wayline`. If `wayline-cli` is missing or the shell reports command not found, tell the user to install it with `npm install -g wayline-cli`, wait until they confirm, then retry; never substitute direct HTTP calls, web fetches, or browser use.
@@ -16,4 +16,17 @@ Resolve non-empty `assignee_developer_profile_ids` with `developer-profile get` 
 
 Report the level of detail the user requested. For an overall progress question, summarize task counts by status, then call out urgent or high-priority work, planned starts, assignments, dependency constraints, and evidenced blockers when relevant. Preserve exact task titles and refs so the result can be traced back to the graph.
 
-This skill is read-only. Never update status, priority, schedule, or assignees, and never create comments. Do not alter Delivery Request content, Task Graph versions, or approval state. Route graph planning to `wayline-estimate`, approval decisions to `wayline-review`, and requirement organization to `wayline-workspace`.
+## Service points
+
+Service points are the organization's prepaid service time: one point is one minute. Admins grant points and deduct them per task; the customer side can only read them. Use these commands only when the user asks about the balance, the ledger, or what was charged:
+
+- `service-point account` reads the organization's balance.
+- `service-point entries` lists the ledger newest first; `--kind grant|adjustment|task_deduction` filters it.
+- `service-point usage --delivery-request-id <id>` reads, for each task in the published graph, its estimate `X`, the minutes deducted so far, and the minutes still deductible. Totals include deductions on tasks later removed from the graph.
+- `service-point deductions --delivery-request-id <id>` lists task deductions; add `--node-ref` for one task, which also works for tasks removed from the published graph.
+
+A deduction records the work minutes `Y`, a `workday` or `weekend` rate type, and the points charged: `ceil(Y x multiplier_bp / 10000)`, where workday is 10000 and weekend is 15000. A task's cumulative `Y` never exceeds its published estimate. Report minutes and points as given, converting to hours only for readability, and never present a balance as a forecast or a delivery commitment.
+
+The balance and deductions are not inputs to planning. Never pass them to `wayline-estimate` or `wayline-review`, and never suggest changing an estimate, task scope, or approval because of how many points remain.
+
+This skill is read-only. Never update status, priority, schedule, or assignees, never create comments, and never grant, adjust, or deduct service points. Do not alter Delivery Request content, Task Graph versions, or approval state. Route graph planning to `wayline-estimate`, approval decisions to `wayline-review`, and requirement organization to `wayline-workspace`.

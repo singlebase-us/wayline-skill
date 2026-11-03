@@ -32,6 +32,23 @@ test("execution remains read-only and projects state onto the current graph vers
   assert.match(contents, /This skill is read-only/);
   assert.doesNotMatch(contents, /task-execution update|node-comment create/);
 });
+test("estimation and review never use the service point balance", async () => {
+  const method = await readFile(new URL("wayline-estimate/references/estimation-method.md", skillsRoot), "utf8");
+  assert.match(method, /service point balance/);
+  assert.match(method, /never read the balance for this step/);
+  assert.doesNotMatch(method, /remaining hours in the current period|contracted hours/);
+  for (const name of ["wayline-estimate", "wayline-review"]) {
+    const contents = await readFile(new URL(`${name}/SKILL.md`, skillsRoot), "utf8");
+    assert.match(contents, /service point balance, ledger, deductions, or usage/, name);
+    assert.match(contents, /no `wayline-cli service-point` command|do not run any `wayline-cli service-point` command/, name);
+  }
+});
+test("service point reads live in the read-only execution skill", async () => {
+  const contents = await readFile(new URL("wayline-execution/SKILL.md", skillsRoot), "utf8");
+  assert.match(contents, /wayline-cli service-point --help/);
+  assert.match(contents, /never grant, adjust, or deduct service points/);
+  assert.match(contents, /Never pass them to `wayline-estimate` or `wayline-review`/);
+});
 test("protocol files ship from the repository root into every consumer skill", async () => {
   const protocolFiles = (await readdir(protocolRoot)).sort();
   assert.deepEqual(protocolFiles, [

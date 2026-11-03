@@ -17,6 +17,7 @@ Work in the intended Organization: pass `--organization-id` when the user named 
 - Read the approval change and the exact candidate version it currently names. Compare it with the published baseline rather than assuming the newest version is the candidate.
 - `version list` returns metadata-only rows without graph payloads; load any version's graph with `version get --version-id`.
 - Assess requirement coverage, graph validity, dependency direction, task granularity, estimate support, and material implementation risk. Use local code when it is available and relevant.
+- Judge estimate support on evidence only. Do not read the Organization's service point balance, ledger, deductions, or usage for a review (no `wayline-cli service-point` command), and never approve, request changes, or recommend changing an estimate because of how many service points remain.
 - `task-execution get` and `node-comment list` may provide supporting execution evidence, but User CLI access to both is read-only. Route progress, blocker, assignment, or execution-history requests whose primary intent is not approval review to `wayline-execution`.
 - Separate analysis from action: report the review result before mutating approval state.
 
